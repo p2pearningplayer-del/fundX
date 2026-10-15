@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0b1120;
+  --foreground: #f8fafc;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  min-height: 100vh;
+}
+
+/* Custom Scrollbar for Institutional Terminal look */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0b1120;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+.demo-watermark-bg {
+  position: relative;
+  overflow: hidden;
+}
+
+.demo-watermark-bg::before {
+  content: "DEMO SIMULATION • ZERO BALANCE IMPACT";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-25deg);
+  font-size: 2.2rem;
+  font-weight: 900;
+  color: rgba(239, 68, 68, 0.12);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+  letter-spacing: 0.2em;
+}
+
+.glow-card {
+  transition: all 0.25s ease;
+}
+.glow-card:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+  box-shadow: 0 0 25px -5px rgba(59, 130, 246, 0.15);
+}

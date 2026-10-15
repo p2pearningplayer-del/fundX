@@ -1,0 +1,43 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.fundx.panel'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.fundx.panel"
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        // TWA configuration
+        manifestPlaceholders = [
+            hostName: "fundx.enterprise.internal",
+            defaultUrl: "https://fundx.enterprise.internal/dashboard",
+            launcherName: "FundX Panel",
+            assetStatements: '[{ "relation": ["delegate_permission/common.handle_all_urls"], "target": {"namespace": "android_app", "package_name": "com.fundx.panel", "sha256_cert_fingerprints": ["14:6D:E9:7D:0C:52:16:84:86:E9:9A:C3:7E:8E:C2:26:FA:F2:1C:17:F9:FE:FC:A4:4E:94:4E:E6:B2:7C:17:8F"]}}]'
+        ]
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+}

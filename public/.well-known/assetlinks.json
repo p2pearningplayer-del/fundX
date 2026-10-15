@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.fundx.panel",
+      "sha256_cert_fingerprints": [
+        "14:6D:E9:7D:0C:52:16:84:86:E9:9A:C3:7E:8E:C2:26:FA:F2:1C:17:F9:FE:FC:A4:4E:94:4E:E6:B2:7C:17:8F"
+      ]
+    }
+  }
+]

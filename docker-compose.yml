@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  fundx-db:
+    image: postgres:16-alpine
+    container_name: fundx-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: fundx_admin
+      POSTGRES_PASSWORD: SuperSecretPass2026!
+      POSTGRES_DB: fundx_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - fundx_pgdata:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fundx_admin -d fundx_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  fundx-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fundx-panel-service
+    restart: always
+    depends_on:
+      fundx-db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://fundx_admin:SuperSecretPass2026!@fundx-db:5432/fundx_db?sslmode=disable
+      JWT_ACCESS_SECRET: fundx_jwt_access_secret_super_secure_key_32chars_min_2026_x1
+      JWT_REFRESH_SECRET: fundx_jwt_refresh_secret_super_secure_key_32chars_min_2026_x2
+      AES_256_PII_SECRET_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      TRC20_USDT_CONTRACT_ADDRESS: TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t
+      TRON_HOT_WALLET_ADDRESS: TXN9A5B8x7pKL2qRt1WvY3zEmP9sDcFeGh
+
+volumes:
+  fundx_pgdata:

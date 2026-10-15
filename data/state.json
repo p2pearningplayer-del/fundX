@@ -1,0 +1,163 @@
+{
+  "users": [
+    {
+      "id": "usr-superadmin-001",
+      "legal_name": "System Superadministrator",
+      "username": "fundx_superadmin",
+      "mobile": "9876543210",
+      "email": "superadmin@fundx.internal",
+      "password_hash": "$2a$12$Kk.Fv2m9vVvGfD9G5H5m8u2Bf4X3p4W8Z6Y1q8Q2e3W4R5T6Y7U8i",
+      "referral_code": "FUNDXADMIN",
+      "role": "SUPERADMIN",
+      "is_suspended": false,
+      "created_at": "2026-10-15T13:28:44.513Z",
+      "updated_at": "2026-10-15T13:28:44.513Z"
+    },
+    {
+      "id": "usr-demo-002",
+      "legal_name": "Rajesh Kumar Verma",
+      "username": "rajesh_fundx",
+      "mobile": "9812345678",
+      "email": "rajesh@example.com",
+      "password_hash": "$2a$12$Kk.Fv2m9vVvGfD9G5H5m8u2Bf4X3p4W8Z6Y1q8Q2e3W4R5T6Y7U8i",
+      "referral_code": "RAJESH2026",
+      "role": "USER",
+      "is_suspended": false,
+      "created_at": "2026-10-15T13:28:44.513Z",
+      "updated_at": "2026-10-15T13:28:44.513Z"
+    }
+  ],
+  "user_sessions": [],
+  "security_logs": [],
+  "funds": [
+    {
+      "id": "fnd-gaming-001",
+      "slug": "gaming",
+      "name": "Gaming Fund",
+      "description": "High-velocity transaction-matching fund with gaming network clearing tasks.",
+      "activation_fee_percent": 9,
+      "base_rate": 0.09,
+      "min_task_amount": 1000,
+      "max_task_amount": 30000,
+      "baseline_valuation": 10000,
+      "is_active": true,
+      "created_at": "2026-10-15T13:28:44.512Z",
+      "updated_at": "2026-10-15T13:28:44.513Z"
+    },
+    {
+      "id": "fnd-stock-002",
+      "slug": "stock",
+      "name": "Stock Fund",
+      "description": "Equities and derivatives transaction routing with institutional clearing.",
+      "activation_fee_percent": 18,
+      "base_rate": 0.18,
+      "min_task_amount": 1000,
+      "max_task_amount": 30000,
+      "baseline_valuation": 10000,
+      "is_active": true,
+      "created_at": "2026-10-15T13:28:44.513Z",
+      "updated_at": "2026-10-15T13:28:44.513Z"
+    },
+    {
+      "id": "fnd-mix-003",
+      "slug": "mix",
+      "name": "Mix Fund",
+      "description": "Blended multi-asset algorithmic liquidity provision and arbitrage clearing.",
+      "activation_fee_percent": 24,
+      "base_rate": 0.24,
+      "min_task_amount": 1000,
+      "max_task_amount": 30000,
+      "baseline_valuation": 10000,
+      "is_active": true,
+      "created_at": "2026-10-15T13:28:44.513Z",
+      "updated_at": "2026-10-15T13:28:44.513Z"
+    }
+  ],
+  "user_funds": [
+    {
+      "id": "uf-001",
+      "user_id": "usr-demo-002",
+      "fund_id": "fnd-gaming-001",
+      "status": "ACTIVE",
+      "activated_at": "2026-10-15T13:28:44.517Z",
+      "created_at": "2026-10-15T13:28:44.517Z",
+      "updated_at": "2026-10-15T13:28:44.517Z"
+    }
+  ],
+  "activation_orders": [],
+  "bank_accounts": [
+    {
+      "id": "ba-001",
+      "user_id": "usr-demo-002",
+      "fund_id": "fnd-gaming-001",
+      "account_holder_encrypted": "001122334455:aabbccddeeff:1234567890abcdef",
+      "bank_name": "HDFC Bank",
+      "ifsc_code": "HDFC0001234",
+      "account_number_encrypted": "001122334455:aabbccddeeff:0987654321fedcba",
+      "account_number_masked": "XXXX-XXXX-4819",
+      "account_type": "SAVINGS",
+      "is_verified": true,
+      "is_immutable": true,
+      "created_at": "2026-10-15T13:28:44.517Z",
+      "updated_at": "2026-10-15T13:28:44.517Z"
+    }
+  ],
+  "tasks": [],
+  "demo_tasks": [],
+  "ledger_entries": [
+    {
+      "id": "LG-GM-8821",
+      "user_id": "usr-demo-002",
+      "fund_id": "fnd-gaming-001",
+      "entry_type": "COMMISSION_CREDIT",
+      "debit_amount": 0,
+      "credit_amount": 900,
+      "calculation_basis": "₹10,000 @ 9.0%",
+      "balance_after": 900,
+      "status": "AVAILABLE",
+      "idempotency_key": "seed-lg-001",
+      "created_at": "2026-10-15T11:28:44.517Z"
+    }
+  ],
+  "withdrawals": [],
+  "in_app_notifications": [
+    {
+      "id": "notif-001",
+      "user_id": "usr-demo-002",
+      "title": "Welcome to FundX Panel",
+      "message": "Your institutional account has been initialized. Complete fund activation to begin task execution.",
+      "category": "SYSTEM",
+      "is_read": false,
+      "created_at": "2026-10-15T13:28:44.517Z"
+    }
+  ],
+  "support_tickets": [],
+  "support_messages": [],
+  "admin_audit_logs": [],
+  "system_config": [
+    {
+      "config_key": "trc20_contract",
+      "config_value": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+      "description": "Official USDT TRC20 Token Contract",
+      "updated_at": "2026-10-15T13:28:44.513Z"
+    },
+    {
+      "config_key": "trc20_hot_wallet",
+      "config_value": "TXN9A5B8x7pKL2qRt1WvY3zEmP9sDcFeGh",
+      "description": "Central Deposit Receiving TRC20 Hot Wallet",
+      "updated_at": "2026-10-15T13:28:44.513Z"
+    },
+    {
+      "config_key": "usdt_inr_peg_rate",
+      "config_value": 89.5,
+      "description": "System Reference Peg: 1 USDT = 89.50 INR",
+      "updated_at": "2026-10-15T13:28:44.513Z"
+    },
+    {
+      "config_key": "order_expiry_minutes",
+      "config_value": 30,
+      "description": "Activation Order Expiration Window in minutes",
+      "updated_at": "2026-10-15T13:28:44.513Z"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FundX — Connection Interrupted</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: #0b1120;
+      color: #f8fafc;
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      text-align: center;
+      padding: 20px;
+    }
+    .card {
+      background: #151d2e;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 32px;
+      max-width: 420px;
+      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
+    }
+    h1 { font-size: 1.5rem; margin-bottom: 8px; color: #38bdf8; }
+    p { color: #94a3b8; font-size: 0.95rem; line-height: 1.5; margin-bottom: 24px; }
+    button {
+      background: #1b5eed;
+      color: #fff;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Connection Interrupted</h1>
+    <p>FundX Panel requires an active network connection to maintain cryptographic state and ledger integrity. Please verify your connection and retry.</p>
+    <button onclick="window.location.reload()">Reconnect</button>
+  </div>
+</body>
+</html>
