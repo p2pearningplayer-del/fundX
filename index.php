@@ -19,10 +19,12 @@ ensureDatabaseSchema($pdo);
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>FundX Panel — Institutional Commission & Fund Orchestration</title>
     
-    <!-- PWA & Mobile Metadata -->
+    <!-- PWA, Favicon & Mobile Metadata -->
     <meta name="theme-color" content="#090d16">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="icon" type="image/svg+xml" href="/public/favicon.svg">
+    <link rel="shortcut icon" href="/public/favicon.svg">
     <link rel="manifest" href="/public/manifest.json">
     
     <!-- Modern Tailwind CSS & Lucide Icons CDN -->
@@ -86,14 +88,31 @@ ensureDatabaseSchema($pdo);
     <header class="glass-nav sticky top-0 z-50 px-4 py-3">
         <div class="max-w-7xl mx-auto flex items-center justify-between">
             <div class="flex items-center space-x-3 cursor-pointer" onclick="navigateTo('dashboard')">
-                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center font-black text-xl text-white shadow-lg shadow-blue-500/30">
-                    FX
+                <!-- High-definition SVG Logo Mark -->
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500/20 via-blue-600/30 to-purple-600/20 border border-blue-500/40 flex items-center justify-center p-1 shadow-lg shadow-blue-500/20">
+                    <svg viewBox="0 0 100 100" fill="none" class="w-full h-full">
+                        <defs>
+                            <linearGradient id="navGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#38bdf8" />
+                                <stop offset="50%" stop-color="#3b82f6" />
+                                <stop offset="100%" stop-color="#8b5cf6" />
+                            </linearGradient>
+                            <linearGradient id="navX" x1="0%" y1="100%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#06b6d4" />
+                                <stop offset="100%" stop-color="#a855f7" />
+                            </linearGradient>
+                        </defs>
+                        <path d="M50 8 L90 30 L90 70 L50 92 L10 70 L10 30 Z" stroke="url(#navGrad)" stroke-width="6" fill="#0b1329" />
+                        <path d="M32 32 L68 68 M68 32 L32 68" stroke="url(#navX)" stroke-width="9" stroke-linecap="round" />
+                        <circle cx="50" cy="50" r="5" fill="#38bdf8" />
+                    </svg>
                 </div>
                 <div>
-                    <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-                        FundX <span class="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full font-mono">v1.0 Institutional</span>
-                    </h1>
-                    <p class="text-[11px] text-gray-400">Triple-Ledger Clearing</p>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xl font-black tracking-tight text-white">Fund<span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-500">X</span></span>
+                        <span class="text-[10px] bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-full font-mono font-bold">PRO v1.0</span>
+                    </div>
+                    <p class="text-[10px] tracking-wider text-gray-400 uppercase font-semibold">Institutional Clearing</p>
                 </div>
             </div>
 
@@ -173,30 +192,56 @@ ensureDatabaseSchema($pdo);
             lucide.createIcons();
         }
 
-        // Utility: API Caller
+        // Utility: Robust API Caller with JSON connection error protection
         async function apiCall(endpoint, method = 'GET', data = null) {
             const token = localStorage.getItem('fundx_token');
-            const headers = { 'Content-Type': 'application/json' };
+            const headers = { 
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            };
             if (token) headers['Authorization'] = `Bearer ${token}`;
 
-            const url = `/api.php?endpoint=${encodeURIComponent(endpoint)}`;
+            const cleanEndpoint = endpoint.replace(/^\/+/, '');
+            const url = `/api.php?endpoint=${encodeURIComponent(cleanEndpoint)}`;
             const opts = { method, headers };
             if (data && ['POST', 'PUT', 'PATCH'].includes(method)) {
                 opts.body = JSON.stringify(data);
             }
 
             try {
-                const res = await fetch(url, opts);
-                const json = await res.json();
-                if (res.status === 401 && endpoint !== 'auth/me') {
+                let res = await fetch(url, opts);
+
+                // Auto-fallback to direct route /api/{cleanEndpoint} if rewrite issue
+                if ((res.status === 404 || res.status === 500) && !url.includes('/api/')) {
+                    try {
+                        const fallbackRes = await fetch(`/api/${cleanEndpoint}`, opts);
+                        if (fallbackRes.ok || [400, 401, 403, 409].includes(fallbackRes.status)) {
+                            res = fallbackRes;
+                        }
+                    } catch (fbErr) {}
+                }
+
+                const rawText = await res.text();
+                let json;
+                try {
+                    json = JSON.parse(rawText);
+                } catch (parseErr) {
+                    console.error("Non-JSON API Output:", rawText);
+                    return {
+                        success: false,
+                        error: `API Server Warning (${res.status}): Server returned non-JSON response. Check network or database.`
+                    };
+                }
+
+                if (res.status === 401 && cleanEndpoint !== 'auth/me' && cleanEndpoint !== 'me') {
                     localStorage.removeItem('fundx_token');
                     AppState.user = null;
                     navigateTo('login');
                 }
                 return json;
             } catch (err) {
-                console.error("API Error:", err);
-                return { success: false, error: err.message };
+                console.error("Network/API Connection Error:", err);
+                return { success: false, error: err.message || 'Connection to FundX API failed.' };
             }
         }
 
@@ -352,11 +397,26 @@ ensureDatabaseSchema($pdo);
             return `
                 <div class="max-w-md mx-auto my-12 bg-gray-900/90 border border-gray-800 rounded-2xl p-8 shadow-2xl backdrop-blur-xl">
                     <div class="text-center mb-8">
-                        <div class="inline-flex w-12 h-12 rounded-2xl bg-blue-600/20 border border-blue-500/30 items-center justify-center text-blue-400 mb-3">
-                            <i data-lucide="lock" class="w-6 h-6"></i>
+                        <div class="inline-flex w-16 h-16 rounded-2xl bg-gradient-to-tr from-cyan-500/20 via-blue-600/30 to-purple-600/20 border border-blue-500/40 items-center justify-center p-2 mb-3 shadow-xl shadow-blue-500/20">
+                            <svg viewBox="0 0 100 100" fill="none" class="w-full h-full">
+                                <defs>
+                                    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                        <stop offset="0%" stop-color="#38bdf8" />
+                                        <stop offset="50%" stop-color="#3b82f6" />
+                                        <stop offset="100%" stop-color="#8b5cf6" />
+                                    </linearGradient>
+                                    <linearGradient id="cardX" x1="0%" y1="100%" x2="100%" y2="0%">
+                                        <stop offset="0%" stop-color="#06b6d4" />
+                                        <stop offset="100%" stop-color="#a855f7" />
+                                    </linearGradient>
+                                </defs>
+                                <path d="M50 8 L90 30 L90 70 L50 92 L10 70 L10 30 Z" stroke="url(#cardGrad)" stroke-width="6" fill="#0b1329" />
+                                <path d="M32 32 L68 68 M68 32 L32 68" stroke="url(#cardX)" stroke-width="9" stroke-linecap="round" />
+                                <circle cx="50" cy="50" r="5" fill="#38bdf8" />
+                            </svg>
                         </div>
-                        <h2 class="text-2xl font-bold text-white">Institutional Access</h2>
-                        <p class="text-sm text-gray-400 mt-1">Authenticate into your multi-fund commission ledger</p>
+                        <h2 class="text-2xl font-black text-white tracking-tight">Institutional Terminal</h2>
+                        <p class="text-xs text-gray-400 mt-1">Authenticate into your multi-fund commission ledger</p>
                     </div>
 
                     <form onsubmit="handleLogin(event)" class="space-y-4">
@@ -394,10 +454,25 @@ ensureDatabaseSchema($pdo);
             return `
                 <div class="max-w-md mx-auto my-6 bg-gray-900/90 border border-gray-800 rounded-2xl p-8 shadow-2xl backdrop-blur-xl">
                     <div class="text-center mb-6">
-                        <div class="inline-flex w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 items-center justify-center text-white mb-3 shadow-lg shadow-blue-500/20">
-                            <i data-lucide="user-plus" class="w-6 h-6"></i>
+                        <div class="inline-flex w-14 h-14 rounded-2xl bg-gradient-to-tr from-cyan-500/20 via-blue-600/30 to-purple-600/20 border border-blue-500/40 items-center justify-center p-2 mb-3 shadow-xl shadow-blue-500/20">
+                            <svg viewBox="0 0 100 100" fill="none" class="w-full h-full">
+                                <defs>
+                                    <linearGradient id="regGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                        <stop offset="0%" stop-color="#38bdf8" />
+                                        <stop offset="50%" stop-color="#3b82f6" />
+                                        <stop offset="100%" stop-color="#8b5cf6" />
+                                    </linearGradient>
+                                    <linearGradient id="regX" x1="0%" y1="100%" x2="100%" y2="0%">
+                                        <stop offset="0%" stop-color="#06b6d4" />
+                                        <stop offset="100%" stop-color="#a855f7" />
+                                    </linearGradient>
+                                </defs>
+                                <path d="M50 8 L90 30 L90 70 L50 92 L10 70 L10 30 Z" stroke="url(#regGrad)" stroke-width="6" fill="#0b1329" />
+                                <path d="M32 32 L68 68 M68 32 L32 68" stroke="url(#regX)" stroke-width="9" stroke-linecap="round" />
+                                <circle cx="50" cy="50" r="5" fill="#38bdf8" />
+                            </svg>
                         </div>
-                        <h2 class="text-2xl font-bold text-white">Create Account</h2>
+                        <h2 class="text-2xl font-black text-white tracking-tight">Create Partner Account</h2>
                         <p class="text-xs text-gray-400 mt-1">Frictionless onboarding &bull; No upfront OTP required</p>
                     </div>
 

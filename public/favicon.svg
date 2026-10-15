@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <defs>
+    <linearGradient id="favShield" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+    <linearGradient id="favX" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background Shield -->
+  <rect width="100" height="100" rx="24" fill="#090d16" />
+  
+  <path d="M50 8 L90 30 L90 70 L50 92 L10 70 L10 30 Z" 
+        stroke="url(#favShield)" stroke-width="5" fill="#0b1329" />
+
+  <!-- Core Neon X -->
+  <path d="M32 32 L68 68 M68 32 L32 68" 
+        stroke="url(#favX)" stroke-width="8" stroke-linecap="round" />
+  
+  <circle cx="50" cy="50" r="5" fill="#38bdf8" />
+</svg>

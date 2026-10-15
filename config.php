@@ -7,22 +7,84 @@
  * ==============================================================================
  */
 
-// Enable strict error reporting for diagnostics (handled gracefully in production)
+// Buffer output immediately to prevent any accidental whitespace/warnings from corrupting JSON
+if (ob_get_level() == 0) {
+    ob_start();
+}
+
+// Suppress raw display errors to keep API JSON clean
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
+ini_set('log_errors', '1');
 
-// Environment & Database Credentials
-define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
-define('DB_PORT', getenv('DB_PORT') ?: '3306');
-define('DB_NAME', getenv('DB_NAME') ?: 'u591469534_fund');
-define('DB_USER', getenv('DB_USER') ?: 'u591469534_fundx');
-define('DB_PASS', getenv('DB_PASS') ?: 'Fund@123@1');
+// 0. Environment File Loader
+function loadEnvConfig(): array {
+    $config = [
+        'DB_HOST' => 'localhost',
+        'DB_PORT' => '3306',
+        'DB_NAME' => 'u591469534_fund',
+        'DB_USER' => 'u591469534_fundx',
+        'DB_PASS' => 'Fund@123@1',
+        'APP_URL' => 'https://fundxx.in'
+    ];
 
-define('APP_URL', 'https://fundxx.in');
+    $envPath = __DIR__ . '/.env';
+    if (file_exists($envPath)) {
+        $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line) || strpos($line, '#') === 0) continue;
+            if (strpos($line, '=') !== false) {
+                list($key, $val) = explode('=', $line, 2);
+                $key = trim($key);
+                $val = trim($val);
+                $val = trim($val, "\"'");
+                if (!empty($key)) {
+                    $config[$key] = $val;
+                }
+            }
+        }
+    }
+    return $config;
+}
+
+$env = loadEnvConfig();
+
+define('DB_HOST', getenv('DB_HOST') ?: $env['DB_HOST']);
+define('DB_PORT', getenv('DB_PORT') ?: $env['DB_PORT']);
+define('DB_NAME', getenv('DB_NAME') ?: $env['DB_NAME']);
+define('DB_USER', getenv('DB_USER') ?: $env['DB_USER']);
+define('DB_PASS', getenv('DB_PASS') ?: $env['DB_PASS']);
+
+define('APP_URL', getenv('APP_URL') ?: $env['APP_URL']);
 define('JWT_SECRET', 'fundx_production_master_jwt_secret_key_2026_9876543210');
 define('AES_KEY', '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'); // 32-byte key
 
-// 1. Database Connection PDO Singleton
+// Global Error Handler to guarantee clean JSON on API endpoints
+function apiErrorHandler($severity, $message, $file, $line) {
+    if (!(error_reporting() & $severity)) {
+        return false;
+    }
+    // In API mode, output structured JSON error
+    if (strpos($_SERVER['REQUEST_URI'] ?? '', 'api') !== false) {
+        jsonResponse([
+            'success' => false,
+            'error' => "Runtime Error: {$message} at line {$line}"
+        ], 500);
+    }
+    return true;
+}
+set_error_handler('apiErrorHandler', E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR);
+
+// Global Exception Handler
+set_exception_handler(function(Throwable $e) {
+    jsonResponse([
+        'success' => false,
+        'error' => $e->getMessage()
+    ], 500);
+});
+
+// 1. Database Connection PDO Singleton with Graceful JSON Failover
 function getDBConnection(): PDO {
     static $pdo = null;
     if ($pdo === null) {
@@ -33,23 +95,25 @@ function getDBConnection(): PDO {
             PDO::ATTR_EMULATE_PREPARES => false,
             PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci"
         ];
+        if (defined('PDO::MYSQL_ATTR_MULTI_STATEMENTS')) {
+            $options[PDO::MYSQL_ATTR_MULTI_STATEMENTS] = true;
+        }
+
         try {
             $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
-            // Ensure foreign keys are enforced
             $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
         } catch (PDOException $e) {
-            header('Content-Type: application/json', true, 500);
-            echo json_encode([
+            jsonResponse([
                 'success' => false,
-                'error' => 'Database connection failed: ' . $e->getMessage()
-            ]);
-            exit;
+                'error' => 'Database connection failed: ' . $e->getMessage(),
+                'code' => 'DB_CONNECTION_ERROR'
+            ], 500);
         }
     }
     return $pdo;
 }
 
-// 2. Auto-initialize schema if tables do not exist
+// 2. Safe Schema Verification
 function ensureDatabaseSchema(PDO $pdo): void {
     try {
         $stmt = $pdo->query("SHOW TABLES LIKE 'users'");
@@ -60,8 +124,8 @@ function ensureDatabaseSchema(PDO $pdo): void {
                 $pdo->exec($sql);
             }
         }
-    } catch (Exception $e) {
-        // Silently continue if tables already exist or permission error
+    } catch (Throwable $e) {
+        // Schema check fail-safe
     }
 }
 
@@ -95,7 +159,7 @@ function decryptVault(string $encryptedBase64): ?string {
         $ciphertext = substr($data, 28);
         $key = hash('sha256', AES_KEY, true);
         return openssl_decrypt($ciphertext, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         return null;
     }
 }
@@ -175,10 +239,25 @@ function requireAdmin(PDO $pdo): array {
     return $user;
 }
 
-// 6. JSON Response Helper
+// 6. JSON Response Helper (Guarantees zero corrupting HTML / text)
 function jsonResponse(array $data, int $status = 200): void {
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
     http_response_code($status);
-    header('Content-Type: application/json; charset=utf-8');
+    header('Content-Type: application/json; charset=UTF-8');
+    
+    // Dynamic CORS matching
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    if (preg_match('/^https?:\/\/(localhost|127\.0\.0\.1|.*fundxx\.in)(:\d+)?$/i', $origin)) {
+        header("Access-Control-Allow-Origin: {$origin}");
+    } else {
+        header('Access-Control-Allow-Origin: https://fundxx.in');
+    }
+    header('Access-Control-Allow-Credentials: true');
+    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+
     echo json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -195,7 +274,7 @@ function logSecurityEvent(PDO $pdo, ?string $userId, string $eventType, ?array $
         );
         $stmt = $pdo->prepare("INSERT INTO security_logs (id, user_id, event_type, ip_address, user_agent, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
         $stmt->execute([$id, $userId, $eventType, $ip, $ua, json_encode($metadata)]);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         // Logging fail safe
     }
 }
@@ -211,13 +290,11 @@ function recordLedgerEntry(
     ?string $referenceId = null,
     ?string $description = null
 ): string {
-    // Get current fund balance
     $stmt = $pdo->prepare("SELECT balance FROM user_funds WHERE user_id = ? AND fund_id = ? FOR UPDATE");
     $stmt->execute([$userId, $fundId]);
     $current = $stmt->fetch();
     $balanceBefore = $current ? floatval($current['balance']) : 0.0;
     
-    // Calculate new balance
     if (in_array($entryType, ['COMMISSION_CREDIT', 'BASELINE_CREDIT', 'REFUND', 'DISBURSEMENT_ROLLBACK'])) {
         $balanceAfter = $balanceBefore + $amount;
     } else if (in_array($entryType, ['WITHDRAWAL_RESERVE', 'DEBIT', 'ACTIVATION_FEE'])) {
@@ -232,14 +309,12 @@ function recordLedgerEntry(
         mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
     );
 
-    // Insert ledger audit row
     $ins = $pdo->prepare("
         INSERT INTO ledger_entries (id, user_id, fund_id, entry_type, amount, balance_before, balance_after, reference_type, reference_id, description, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     ");
     $ins->execute([$id, $userId, $fundId, $entryType, $amount, $balanceBefore, $balanceAfter, $referenceType, $referenceId, $description]);
 
-    // Update user_funds balance
     $upd = $pdo->prepare("UPDATE user_funds SET balance = ?, updated_at = NOW() WHERE user_id = ? AND fund_id = ?");
     $upd->execute([$balanceAfter, $userId, $fundId]);
 
