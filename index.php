@@ -176,6 +176,68 @@ ensureDatabaseSchema($pdo);
         </div>
     </div>
 
+    <!-- Payment Proof Screenshot Full-View Modal -->
+    <div id="proof-screenshot-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+        <div class="relative max-w-3xl w-full bg-gray-900 border border-gray-800 rounded-3xl p-6 shadow-2xl text-left my-8">
+            <div class="flex items-center justify-between pb-3 border-b border-gray-800 mb-4">
+                <div class="flex items-center space-x-2">
+                    <i data-lucide="image" class="w-5 h-5 text-blue-400"></i>
+                    <h3 class="text-base font-bold text-white">Payment Proof Inspection</h3>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <a id="proof-screenshot-download" href="#" target="_blank" class="px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-semibold flex items-center gap-1 transition">
+                        <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                        <span>Open Original</span>
+                    </a>
+                    <button onclick="closeProofModal()" class="p-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="max-h-[75vh] overflow-auto rounded-2xl bg-gray-950 p-2 flex items-center justify-center border border-gray-800">
+                <img id="proof-screenshot-img" src="" alt="Proof Screenshot" class="max-w-full max-h-[70vh] object-contain rounded-xl shadow-lg">
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Rejection Modal -->
+    <div id="reject-activation-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+        <div class="relative w-full max-w-md bg-gray-900 border border-gray-800 rounded-3xl p-6 shadow-2xl text-left my-8">
+            <div class="flex items-center justify-between pb-3 border-b border-gray-800 mb-4">
+                <div class="flex items-center space-x-2">
+                    <i data-lucide="x-circle" class="w-5 h-5 text-red-400"></i>
+                    <h3 class="text-base font-bold text-white">Reject Activation Request</h3>
+                </div>
+                <button onclick="closeRejectActivationModal()" class="p-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <form onsubmit="handleRejectActivationSubmit(event)" class="space-y-4">
+                <input type="hidden" id="reject-order-id">
+                <p id="reject-target-desc" class="text-xs text-gray-400">You are rejecting this activation request.</p>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-300 mb-1.5">Reason for Rejection *</label>
+                    <textarea id="reject-reason-input" rows="3" required placeholder="Specify why this request is rejected (e.g. TXID not found on TronScan, incorrect USDT amount, invalid proof image)..." class="w-full px-3.5 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-white text-xs focus:outline-none focus:border-red-500"></textarea>
+                    <div class="flex flex-wrap gap-1.5 mt-2">
+                        <button type="button" onclick="setQuickRejectReason('TXID not found on TronScan blockchain')" class="px-2 py-0.5 rounded text-[10px] bg-gray-800 text-gray-300 hover:text-white hover:bg-gray-700">TXID Not Found</button>
+                        <button type="button" onclick="setQuickRejectReason('Incorrect payment amount sent')" class="px-2 py-0.5 rounded text-[10px] bg-gray-800 text-gray-300 hover:text-white hover:bg-gray-700">Amount Mismatch</button>
+                        <button type="button" onclick="setQuickRejectReason('Invalid or unreadable screenshot proof')" class="px-2 py-0.5 rounded text-[10px] bg-gray-800 text-gray-300 hover:text-white hover:bg-gray-700">Invalid Proof</button>
+                        <button type="button" onclick="setQuickRejectReason('Payment was not sent to our designated TRC20 wallet')" class="px-2 py-0.5 rounded text-[10px] bg-gray-800 text-gray-300 hover:text-white hover:bg-gray-700">Wrong Wallet</button>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2 pt-2">
+                    <button type="button" onclick="closeRejectActivationModal()" class="w-1/3 py-2.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold text-xs">
+                        Cancel
+                    </button>
+                    <button type="submit" id="reject-submit-btn" class="w-2/3 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-lg shadow-red-600/20 flex items-center justify-center space-x-1.5">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                        <span>Confirm Rejection</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Application JavaScript Engine -->
     <script>
         // Global Application State
@@ -216,7 +278,10 @@ ensureDatabaseSchema($pdo);
             const cleanEndpoint = endpoint.replace(/^\/+/, '');
             const url = `/api.php?endpoint=${encodeURIComponent(cleanEndpoint)}`;
             const opts = { method, headers };
-            if (data && ['POST', 'PUT', 'PATCH'].includes(method)) {
+            if (data instanceof FormData) {
+                delete headers['Content-Type'];
+                opts.body = data;
+            } else if (data && ['POST', 'PUT', 'PATCH'].includes(method)) {
                 opts.body = JSON.stringify(data);
             }
 
@@ -573,13 +638,33 @@ ensureDatabaseSchema($pdo);
                             <button onclick="navigateTo('funds')" class="text-xs text-blue-400 hover:underline">View All &rarr;</button>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            ${funds.map(f => `
-                                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 hover:border-gray-700 transition relative">
+                            ${funds.map(f => {
+                                const isPending = f.user_state === 'PENDING_VERIFICATION' || (f.latest_order && ['PENDING_VERIFICATION', 'UNDER_REVIEW', 'PENDING'].includes(f.latest_order.status));
+                                const isRejected = !isPending && f.user_state !== 'ACTIVE' && f.latest_order && f.latest_order.status === 'REJECTED';
+                                const feeVal = f.activation_fee_usdt || (f.slug === 'gaming' ? 100 : (f.slug === 'stock' ? 150 : 200));
+
+                                return `
+                                <div class="bg-gray-900 border ${f.user_state === 'ACTIVE' ? 'border-emerald-500/30' : (isPending ? 'border-amber-500/40 shadow-amber-500/5' : (isRejected ? 'border-rose-500/30' : 'border-gray-800'))} rounded-2xl p-5 hover:border-gray-700 transition relative">
                                     <div class="flex items-center justify-between mb-3">
                                         <h4 class="font-bold text-white">${f.name}</h4>
-                                        <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold ${f.user_state === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-gray-800 text-gray-400 border border-gray-700'}">
-                                            ${f.user_state}
-                                        </span>
+                                        ${f.user_state === 'ACTIVE' ? `
+                                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                                ACTIVE
+                                            </span>
+                                        ` : isPending ? `
+                                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+                                                <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                                                UNDER REVIEW
+                                            </span>
+                                        ` : isRejected ? `
+                                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                                PROOF REJECTED
+                                            </span>
+                                        ` : `
+                                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-gray-800 text-gray-400 border border-gray-700">
+                                                LOCKED
+                                            </span>
+                                        `}
                                     </div>
                                     <div class="space-y-1.5 text-xs text-gray-400">
                                         <div class="flex justify-between"><span>Base Commission Rate:</span> <span class="font-semibold text-blue-400">${(f.base_rate * 100).toFixed(1)}%</span></div>
@@ -589,21 +674,45 @@ ensureDatabaseSchema($pdo);
                                             <span class="font-bold text-white">₹${Number(f.user_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                                         </div>
                                     </div>
+
+                                    ${isPending ? `
+                                        <div class="mt-3 p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-start gap-1.5">
+                                            <i data-lucide="clock" class="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5 animate-pulse"></i>
+                                            <span>Proof under review by compliance desk (TXID: <code>${f.latest_order && f.latest_order.txid ? f.latest_order.txid.substring(0, 8) + '...' : 'Submitted'}</code>). Access will unlock upon approval.</span>
+                                        </div>
+                                    ` : isRejected ? `
+                                        <div class="mt-3 p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-[11px] text-rose-300 flex items-start gap-1.5">
+                                            <i data-lucide="alert-circle" class="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5"></i>
+                                            <span>Rejected: ${f.latest_order && f.latest_order.rejection_reason ? f.latest_order.rejection_reason : 'Invalid proof'}. Please re-submit.</span>
+                                        </div>
+                                    ` : ''}
+
                                     <div class="mt-4 pt-3 border-t border-gray-800">
                                         ${f.user_state === 'ACTIVE' ? `
                                             <button onclick="navigateTo('tasks', { fund_id: '${f.id}' })" class="w-full py-2 rounded-xl bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 font-semibold text-xs hover:bg-emerald-600/30 flex items-center justify-center space-x-1">
                                                 <span>Execute Tasks</span>
                                                 <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
                                             </button>
+                                        ` : isPending ? `
+                                            <button disabled class="w-full py-2 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-300 font-semibold text-xs flex items-center justify-center space-x-1.5 cursor-not-allowed">
+                                                <i data-lucide="hourglass" class="w-3.5 h-3.5 animate-spin"></i>
+                                                <span>Pending Verification</span>
+                                            </button>
+                                        ` : isRejected ? `
+                                            <button onclick="openFundUnlockModal('${f.id}')" class="w-full py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs flex items-center justify-center space-x-1 shadow-md shadow-rose-600/20">
+                                                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                                                <span>Re-submit Proof (${feeVal} USDT)</span>
+                                            </button>
                                         ` : `
                                             <button onclick="openFundUnlockModal('${f.id}')" class="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center space-x-1 shadow-md shadow-blue-600/20">
                                                 <i data-lucide="key" class="w-3.5 h-3.5"></i>
-                                                <span>Activate (${f.activation_fee_usdt || (f.slug === 'gaming' ? 100 : (f.slug === 'stock' ? 150 : 200))} USDT)</span>
+                                                <span>Activate (${feeVal} USDT)</span>
                                             </button>
                                         `}
                                     </div>
                                 </div>
-                            `).join('')}
+                                `;
+                            }).join('')}
                         </div>
                     </div>
 
@@ -647,26 +756,64 @@ ensureDatabaseSchema($pdo);
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        ${funds.map(f => `
-                            <div class="bg-gray-900 border ${f.user_state === 'ACTIVE' ? 'border-emerald-500/40 shadow-emerald-500/5' : 'border-gray-800'} rounded-2xl p-6 shadow-xl flex flex-col justify-between">
+                        ${funds.map(f => {
+                            const isPending = f.user_state === 'PENDING_VERIFICATION' || (f.latest_order && ['PENDING_VERIFICATION', 'UNDER_REVIEW', 'PENDING'].includes(f.latest_order.status));
+                            const isRejected = !isPending && f.user_state !== 'ACTIVE' && f.latest_order && f.latest_order.status === 'REJECTED';
+                            const feeVal = f.activation_fee_usdt || (f.slug === 'gaming' ? 100 : (f.slug === 'stock' ? 150 : 200));
+
+                            return `
+                            <div class="bg-gray-900 border ${f.user_state === 'ACTIVE' ? 'border-emerald-500/40 shadow-emerald-500/5' : (isPending ? 'border-amber-500/40 shadow-amber-500/5' : (isRejected ? 'border-rose-500/30' : 'border-gray-800'))} rounded-2xl p-6 shadow-xl flex flex-col justify-between">
                                 <div>
                                     <div class="flex items-center justify-between mb-4">
                                         <div class="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 font-bold">
                                             ${f.slug.toUpperCase().substring(0, 2)}
                                         </div>
-                                        <span class="px-3 py-1 rounded-full text-xs font-bold ${f.user_state === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-gray-800 text-gray-400'}">
-                                            ${f.user_state}
-                                        </span>
+                                        ${f.user_state === 'ACTIVE' ? `
+                                            <span class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                                ACTIVE
+                                            </span>
+                                        ` : isPending ? `
+                                            <span class="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1.5">
+                                                <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                                                UNDER REVIEW
+                                            </span>
+                                        ` : isRejected ? `
+                                            <span class="px-3 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                                PROOF REJECTED
+                                            </span>
+                                        ` : `
+                                            <span class="px-3 py-1 rounded-full text-xs font-bold bg-gray-800 text-gray-400 border border-gray-700">
+                                                LOCKED
+                                            </span>
+                                        `}
                                     </div>
                                     <h3 class="text-lg font-bold text-white mb-1">${f.name}</h3>
                                     <p class="text-xs text-gray-400 mb-4">${f.description}</p>
 
                                     <div class="space-y-2 text-xs border-t border-gray-800 pt-3">
                                         <div class="flex justify-between"><span class="text-gray-400">Base Commission:</span> <span class="font-bold text-emerald-400">${(f.base_rate * 100).toFixed(1)}%</span></div>
-                                        <div class="flex justify-between"><span class="text-gray-400">Fixed Activation Fee:</span> <span class="font-bold text-emerald-400">${f.activation_fee_usdt || (f.slug === 'gaming' ? 100 : (f.slug === 'stock' ? 150 : 200))} USDT</span></div>
+                                        <div class="flex justify-between"><span class="text-gray-400">Fixed Activation Fee:</span> <span class="font-bold text-emerald-400">${feeVal} USDT</span></div>
                                         <div class="flex justify-between"><span class="text-gray-400">Task Quantum Range:</span> <span class="font-semibold text-white">₹${f.min_task_amount} - ₹${f.max_task_amount}</span></div>
                                         <div class="flex justify-between"><span class="text-gray-400">Baseline Allocation:</span> <span class="font-bold text-blue-400">₹${Number(f.baseline_valuation).toLocaleString()}</span></div>
                                     </div>
+
+                                    ${isPending ? `
+                                        <div class="mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 flex items-start gap-2">
+                                            <i data-lucide="clock" class="w-4 h-4 text-amber-400 shrink-0 mt-0.5 animate-pulse"></i>
+                                            <div>
+                                                <span class="font-semibold block">Verification in Progress</span>
+                                                <span class="text-[11px] text-amber-300/80">Proof submitted (TXID: <code>${f.latest_order && f.latest_order.txid ? f.latest_order.txid.substring(0, 10) + '...' : 'Recorded'}</code>). Awaiting compliance desk approval.</span>
+                                            </div>
+                                        </div>
+                                    ` : isRejected ? `
+                                        <div class="mt-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-start gap-2">
+                                            <i data-lucide="alert-circle" class="w-4 h-4 text-rose-400 shrink-0 mt-0.5"></i>
+                                            <div>
+                                                <span class="font-semibold block">Activation Proof Rejected</span>
+                                                <span class="text-[11px] text-rose-300/80">${f.latest_order && f.latest_order.rejection_reason ? f.latest_order.rejection_reason : 'Invalid transaction hash or proof'}. Please re-submit.</span>
+                                            </div>
+                                        </div>
+                                    ` : ''}
                                 </div>
 
                                 <div class="mt-6 pt-4 border-t border-gray-800">
@@ -675,15 +822,26 @@ ensureDatabaseSchema($pdo);
                                             <span>Enter Execution Desk</span>
                                             <i data-lucide="arrow-right" class="w-4 h-4"></i>
                                         </button>
+                                    ` : isPending ? `
+                                        <button disabled class="w-full py-2.5 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-300 font-semibold text-xs flex items-center justify-center space-x-1.5 cursor-not-allowed">
+                                            <i data-lucide="hourglass" class="w-4 h-4 animate-spin"></i>
+                                            <span>Pending Verification / Under Review</span>
+                                        </button>
+                                    ` : isRejected ? `
+                                        <button onclick="openFundUnlockModal('${f.id}')" class="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs shadow-lg shadow-rose-600/20 flex items-center justify-center space-x-1.5">
+                                            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                                            <span>Re-submit Activation Proof (${feeVal} USDT)</span>
+                                        </button>
                                     ` : `
                                         <button onclick="openFundUnlockModal('${f.id}')" class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-lg shadow-blue-600/20 flex items-center justify-center space-x-1.5">
                                             <i data-lucide="key" class="w-4 h-4"></i>
-                                            <span>Unlock with ${f.activation_fee_usdt || (f.slug === 'gaming' ? 100 : (f.slug === 'stock' ? 150 : 200))} USDT</span>
+                                            <span>Unlock with ${feeVal} USDT</span>
                                         </button>
                                     `}
                                 </div>
                             </div>
-                        `).join('')}
+                            `;
+                        }).join('')}
                     </div>
                 </div>
             `;
@@ -739,16 +897,37 @@ ensureDatabaseSchema($pdo);
                         </div>
                     </div>
 
-                    <!-- TXID Submission Form -->
+                    <!-- TXID & Payment Proof Submission Form -->
                     <form onsubmit="submitTXID(event, '${order.id}')" class="space-y-4">
                         <div>
                             <label class="block text-xs font-semibold text-gray-300 mb-1">Enter Blockchain TXID (Hash) or Transfer Reference *</label>
                             <input id="txid-input" type="text" required maxlength="128" placeholder="Paste TXID hash (e.g. 7f9a1c... or 0x7f9a1c...)" class="w-full px-4 py-2.5 rounded-xl bg-gray-800 border border-gray-700 text-white font-mono text-xs focus:outline-none focus:border-blue-500">
                             <p class="text-[11px] text-gray-500 mt-1">Accepts 64-character TRC20 TXID, 0x-prefixed hash, or transfer reference.</p>
                         </div>
-                        <button type="submit" id="txid-btn" class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-lg shadow-emerald-600/20 flex items-center justify-center space-x-1.5">
-                            <i data-lucide="shield-check" class="w-4 h-4"></i>
-                            <span>Verify Transaction & Unlock Fund</span>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-300 mb-1 flex items-center justify-between">
+                                <span>Upload Payment Screenshot (Optional / Recommended)</span>
+                                <span class="text-[10px] text-gray-400 font-normal">PNG, JPG, WEBP up to 10MB</span>
+                            </label>
+                            <input id="gateway-proof-file" type="file" accept="image/png,image/jpeg,image/jpg,image/webp" onchange="previewProofScreenshot(this, 'gateway-proof-preview-wrap', 'gateway-proof-preview-img')" class="w-full px-3 py-2 rounded-xl bg-gray-800 border border-gray-700 text-gray-400 text-xs file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500 cursor-pointer">
+                            <div id="gateway-proof-preview-wrap" class="hidden mt-2 p-2 bg-gray-950 rounded-xl border border-gray-800 flex items-center space-x-3">
+                                <img id="gateway-proof-preview-img" src="" alt="Proof Preview" class="w-12 h-12 object-cover rounded-lg border border-gray-700 shrink-0">
+                                <div class="text-[11px] text-gray-300">
+                                    <span class="font-semibold block text-emerald-400">Screenshot Attached</span>
+                                    <span class="text-gray-500 text-[10px]">Will be submitted with your TXID for instant admin review</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-[11px] text-blue-300 flex items-start gap-2">
+                            <i data-lucide="info" class="w-4 h-4 text-blue-400 shrink-0 mt-0.5"></i>
+                            <span>Once submitted, your fund will be in <strong>Pending Verification / Under Review</strong> status while our compliance clearing desk verifies the payment on the Tron blockchain.</span>
+                        </div>
+
+                        <button type="submit" id="txid-btn" class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-lg shadow-emerald-600/20 flex items-center justify-center space-x-1.5 transition">
+                            <i data-lucide="send" class="w-4 h-4"></i>
+                            <span>Submit Activation Request for Review</span>
                         </button>
                     </form>
                 </div>
@@ -1197,6 +1376,8 @@ ensureDatabaseSchema($pdo);
             };
             const adminFunds = (fundsRes && fundsRes.funds) ? fundsRes.funds : [];
 
+            const pendingOrdersCount = orders.filter(o => ['PENDING_VERIFICATION', 'UNDER_REVIEW', 'PENDING'].includes(o.status)).length;
+
             return `
                 <div class="space-y-6">
                     <div class="border-b border-gray-800 pb-4 flex items-center justify-between">
@@ -1211,7 +1392,7 @@ ensureDatabaseSchema($pdo);
                     </div>
 
                     <!-- Metrics Grid -->
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
                         <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
                             <span class="text-xs text-gray-400">Total Registered Users</span>
                             <h3 class="text-2xl font-bold text-white mt-1">${stats.total_users || 0}</h3>
@@ -1220,11 +1401,18 @@ ensureDatabaseSchema($pdo);
                             <span class="text-xs text-gray-400">Active Fund Nodes</span>
                             <h3 class="text-2xl font-bold text-emerald-400 mt-1">${stats.active_funds || 0}</h3>
                         </div>
+                        <div class="bg-gray-900 border ${pendingOrdersCount > 0 ? 'border-amber-500/40 shadow-amber-500/10' : 'border-gray-800'} rounded-xl p-4 relative">
+                            <span class="text-xs text-gray-400">Pending Activations</span>
+                            <h3 class="text-2xl font-bold text-amber-400 mt-1 flex items-center gap-2">
+                                <span>${pendingOrdersCount}</span>
+                                ${pendingOrdersCount > 0 ? '<span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>' : ''}
+                            </h3>
+                        </div>
                         <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
                             <span class="text-xs text-gray-400">Pending Payouts</span>
                             <h3 class="text-2xl font-bold text-amber-400 mt-1">${stats.pending_withdrawals || 0}</h3>
                         </div>
-                        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 col-span-2 sm:col-span-1">
                             <span class="text-xs text-gray-400">Total Volume Settled</span>
                             <h3 class="text-2xl font-bold text-blue-400 mt-1">₹${Number(stats.total_commission_volume || 0).toLocaleString()}</h3>
                         </div>
@@ -1352,6 +1540,145 @@ ensureDatabaseSchema($pdo);
                                     </div>
                                 `;
                             }).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Fund Activation Requests & Proof Verification Queue Desk -->
+                    <div id="admin-activation-queue" class="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden shadow-xl space-y-0">
+                        <div class="p-4 border-b border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div>
+                                <h3 class="text-sm font-bold text-white uppercase flex items-center gap-2">
+                                    <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+                                    <span>Fund Activation Requests & Proof Verification Queue</span>
+                                </h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Review submitted TRC20 TXIDs and payment screenshots to approve fund unlock or request re-submission.</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="px-2.5 py-1 rounded-lg text-xs font-mono font-bold ${pendingOrdersCount > 0 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1.5' : 'bg-gray-800 text-gray-400'}">
+                                    ${pendingOrdersCount > 0 ? '<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>' : ''}
+                                    ${pendingOrdersCount} Pending Review
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead class="bg-gray-950 text-gray-400 text-[10px] uppercase tracking-wider">
+                                    <tr>
+                                        <th class="p-3">User Details</th>
+                                        <th class="p-3">Fund Plan</th>
+                                        <th class="p-3">Amount</th>
+                                        <th class="p-3">Submitted TXID</th>
+                                        <th class="p-3">Screenshot Proof</th>
+                                        <th class="p-3">Submitted</th>
+                                        <th class="p-3">Status</th>
+                                        <th class="p-3 text-right">Approval Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-800">
+                                    ${orders.length === 0 ? `
+                                        <tr><td colspan="8" class="p-6 text-center text-gray-500">No activation requests found</td></tr>
+                                    ` : orders.map(o => {
+                                        const isPending = ['PENDING_VERIFICATION', 'UNDER_REVIEW', 'PENDING'].includes(o.status);
+                                        const isApproved = ['APPROVED', 'VERIFIED', 'ACTIVE'].includes(o.status);
+                                        const isRejected = o.status === 'REJECTED';
+                                        const txidVal = o.txid || o.txid_hash || '';
+                                        const proofImg = o.proof_image_path || o.proof_screenshot || '';
+
+                                        return `
+                                        <tr class="${isPending ? 'bg-amber-500/[0.03]' : ''} hover:bg-gray-800/40 transition">
+                                            <td class="p-3">
+                                                <div class="font-bold text-white">${o.legal_name || 'User'}</div>
+                                                <div class="font-mono text-[11px] text-gray-400">@${o.username || 'unknown'}</div>
+                                                <div class="font-mono text-[10px] text-gray-500">${o.mobile || o.email || '—'}</div>
+                                            </td>
+                                            <td class="p-3">
+                                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-gray-800 text-white border border-gray-700">
+                                                    <span class="w-2 h-2 rounded-full ${o.fund_slug === 'gaming' ? 'bg-emerald-400' : (o.fund_slug === 'stock' ? 'bg-blue-400' : 'bg-purple-400')}"></span>
+                                                    ${o.fund_name}
+                                                </span>
+                                            </td>
+                                            <td class="p-3">
+                                                <div class="font-bold font-mono text-emerald-400 text-sm">${o.usdt_amount} USDT</div>
+                                                <div class="text-[10px] text-gray-500 font-mono">₹${Number(o.inr_amount || (o.usdt_amount * 89.50)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                                            </td>
+                                            <td class="p-3">
+                                                ${txidVal ? `
+                                                    <div class="flex items-center gap-1.5 font-mono text-[11px] text-blue-400">
+                                                        <span class="truncate max-w-[120px]" title="${txidVal}">${txidVal.substring(0, 10)}...${txidVal.substring(txidVal.length - 6)}</span>
+                                                        <button type="button" onclick="navigator.clipboard.writeText('${txidVal}'); showToast('TXID copied to clipboard!', 'success');" class="p-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white" title="Copy TXID">
+                                                            <i data-lucide="copy" class="w-3 h-3"></i>
+                                                        </button>
+                                                        <a href="https://tronscan.org/#/transaction/${txidVal}" target="_blank" class="p-1 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/40" title="View on TronScan">
+                                                            <i data-lucide="external-link" class="w-3 h-3"></i>
+                                                        </a>
+                                                    </div>
+                                                ` : `<span class="text-gray-500 text-[11px] italic">No hash provided</span>`}
+                                            </td>
+                                            <td class="p-3">
+                                                ${proofImg ? `
+                                                    <div class="flex items-center gap-2">
+                                                        <img src="${proofImg}" alt="Proof" onclick="showProofModal('${proofImg}')" class="w-10 h-10 object-cover rounded-lg border border-gray-700 hover:border-emerald-400 cursor-pointer shadow hover:scale-105 transition" title="Click to inspect proof">
+                                                        <button type="button" onclick="showProofModal('${proofImg}')" class="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[10px] text-gray-300 font-semibold flex items-center gap-1">
+                                                            <i data-lucide="eye" class="w-3 h-3"></i>
+                                                            <span>Inspect</span>
+                                                        </button>
+                                                    </div>
+                                                ` : `
+                                                    <span class="text-[10px] text-gray-500 italic">No screenshot</span>
+                                                `}
+                                            </td>
+                                            <td class="p-3 font-mono text-[11px] text-gray-400 whitespace-nowrap">
+                                                ${o.updated_at || o.created_at}
+                                            </td>
+                                            <td class="p-3">
+                                                ${isPending ? `
+                                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1 w-max">
+                                                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                                                        Pending Review
+                                                    </span>
+                                                ` : isApproved ? `
+                                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 w-max">
+                                                        <i data-lucide="check" class="w-3 h-3"></i>
+                                                        Approved & Active
+                                                    </span>
+                                                ` : isRejected ? `
+                                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1 w-max" title="${o.rejection_reason || ''}">
+                                                        <i data-lucide="x" class="w-3 h-3"></i>
+                                                        Rejected
+                                                    </span>
+                                                ` : `
+                                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-gray-800 text-gray-400 border border-gray-700 w-max">
+                                                        ${o.status}
+                                                    </span>
+                                                `}
+                                            </td>
+                                            <td class="p-3 text-right">
+                                                ${isPending ? `
+                                                    <div class="flex items-center justify-end space-x-2">
+                                                        <button onclick="processActivation('${o.id}', 'APPROVE')" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1 shadow-md shadow-emerald-600/20 transition">
+                                                            <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                                            <span>Approve</span>
+                                                        </button>
+                                                        <button onclick="openRejectActivationModal('${o.id}', '${o.username}', '${o.fund_name}')" class="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center gap-1 shadow-md shadow-red-600/20 transition">
+                                                            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                                                            <span>Reject</span>
+                                                        </button>
+                                                    </div>
+                                                ` : isApproved ? `
+                                                    <span class="text-[11px] text-emerald-400 font-semibold flex items-center justify-end gap-1">
+                                                        <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+                                                        <span>Unlocked</span>
+                                                    </span>
+                                                ` : isRejected ? `
+                                                    <span class="text-[10px] text-rose-400 italic block text-right" title="${o.rejection_reason || ''}">${(o.rejection_reason || 'Rejected').substring(0, 18)}...</span>
+                                                ` : '—'}
+                                            </td>
+                                        </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
@@ -1723,8 +2050,8 @@ ensureDatabaseSchema($pdo);
                         <p class="text-[10px] text-gray-500">Send USDT strictly on TRC20 (Tron network). Contract: TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t</p>
                     </div>
 
-                    <!-- TXID Submission Form -->
-                    <form onsubmit="handleModalTXIDSubmit(event, '${order.id}')" class="space-y-3 pt-1 border-t border-gray-800">
+                    <!-- TXID & Payment Proof Submission Form -->
+                    <form onsubmit="handleModalTXIDSubmit(event, '${order.id}')" class="space-y-3.5 pt-1 border-t border-gray-800">
                         <div>
                             <label class="block text-xs font-semibold text-gray-300 mb-1">
                                 Enter Blockchain TXID (Hash) or Transfer Reference *
@@ -1732,13 +2059,34 @@ ensureDatabaseSchema($pdo);
                             <input id="modal-txid-input" type="text" required maxlength="128" placeholder="Paste TXID hash (e.g. 7f9a1c... or 0x7f9a1c...)" class="w-full px-3.5 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-white font-mono text-xs focus:outline-none focus:border-emerald-500">
                             <span class="text-[10px] text-gray-500 block mt-1">Accepts 64-character TRC20 TXID, 0x-prefixed hash, or transfer reference.</span>
                         </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-300 mb-1 flex items-center justify-between">
+                                <span>Upload Payment Screenshot (Optional / Recommended)</span>
+                                <span class="text-[10px] text-gray-500 font-normal">PNG, JPG, WEBP &bull; Max 10MB</span>
+                            </label>
+                            <input id="modal-proof-file" type="file" accept="image/png,image/jpeg,image/jpg,image/webp" onchange="previewProofScreenshot(this, 'modal-proof-preview-wrap', 'modal-proof-preview-img')" class="w-full px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-400 text-xs file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500 cursor-pointer">
+                            <div id="modal-proof-preview-wrap" class="hidden mt-2 p-2 bg-gray-950 rounded-xl border border-gray-800 flex items-center space-x-3">
+                                <img id="modal-proof-preview-img" src="" alt="Proof Preview" class="w-12 h-12 object-cover rounded-lg border border-gray-700 shrink-0">
+                                <div class="text-[11px] text-gray-300">
+                                    <span class="font-semibold block text-emerald-400">Screenshot Attached</span>
+                                    <span class="text-gray-500 text-[10px]">Will be submitted with your TXID for instant admin review</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-start gap-2 text-[11px] text-blue-300">
+                            <i data-lucide="info" class="w-4 h-4 text-blue-400 shrink-0 mt-0.5"></i>
+                            <span>Once submitted, your fund will enter <strong>Pending Verification / Under Review</strong> status while our compliance desk clears the payment on the Tron blockchain.</span>
+                        </div>
+
                         <div class="flex items-center space-x-2 pt-1">
                             <button type="button" onclick="closeFundUnlockModal()" class="w-1/3 py-2.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold text-xs transition">
                                 Cancel
                             </button>
                             <button type="submit" id="modal-txid-btn" class="w-2/3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 flex items-center justify-center space-x-1.5 transition">
-                                <i data-lucide="shield-check" class="w-4 h-4"></i>
-                                <span>Verify & Unlock</span>
+                                <i data-lucide="send" class="w-4 h-4"></i>
+                                <span>Submit Activation Request</span>
                             </button>
                         </div>
                     </form>
@@ -1771,7 +2119,7 @@ ensureDatabaseSchema($pdo);
             e.preventDefault();
             const btn = document.getElementById('modal-txid-btn');
             btn.disabled = true;
-            btn.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Verifying TXID...</span>`;
+            btn.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Submitting Proof...</span>`;
 
             let txid = document.getElementById('modal-txid-input').value.trim();
             const urlMatch = txid.match(/([a-fA-F0-9]{64})/);
@@ -1781,9 +2129,18 @@ ensureDatabaseSchema($pdo);
                 txid = txid.replace(/^0x/i, '').replace(/[\s\-]/g, '');
             }
 
-            const res = await apiCall('funds/verify-txid', 'POST', { order_id: orderId, txid });
+            const formData = new FormData();
+            formData.append('order_id', orderId);
+            formData.append('txid', txid);
+
+            const fileInput = document.getElementById('modal-proof-file');
+            if (fileInput && fileInput.files && fileInput.files[0]) {
+                formData.append('screenshot', fileInput.files[0]);
+            }
+
+            const res = await apiCall('funds/verify-txid', 'POST', formData);
             if (res.success) {
-                showToast('Fund activated successfully! Baseline balance credited.', 'success');
+                showToast(res.message || 'Activation request submitted! Status: Pending Verification / Under Review.', 'success');
                 closeFundUnlockModal();
                 if (AppState.currentRoute === 'funds') {
                     navigateTo('funds');
@@ -1791,10 +2148,26 @@ ensureDatabaseSchema($pdo);
                     navigateTo('dashboard');
                 }
             } else {
-                showToast(res.error || 'TXID verification failed', 'error');
+                showToast(res.error || 'Submission failed', 'error');
                 btn.disabled = false;
-                btn.innerHTML = `<i data-lucide="shield-check" class="w-4 h-4"></i><span>Verify & Unlock</span>`;
+                btn.innerHTML = `<i data-lucide="send" class="w-4 h-4"></i><span>Submit Activation Request</span>`;
                 lucide.createIcons();
+            }
+        }
+
+        function previewProofScreenshot(input, wrapId, imgId) {
+            const wrap = document.getElementById(wrapId);
+            const img = document.getElementById(imgId);
+            if (!wrap || !img) return;
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    img.src = e.target.result;
+                    wrap.classList.remove('hidden');
+                };
+                reader.readAsDataURL(input.files[0]);
+            } else {
+                wrap.classList.add('hidden');
             }
         }
 
@@ -1935,7 +2308,7 @@ ensureDatabaseSchema($pdo);
             e.preventDefault();
             const btn = document.getElementById('txid-btn');
             btn.disabled = true;
-            btn.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>`;
+            btn.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Submitting Proof...</span>`;
 
             let txid = document.getElementById('txid-input').value.trim();
             const urlMatch = txid.match(/([a-fA-F0-9]{64})/);
@@ -1945,14 +2318,23 @@ ensureDatabaseSchema($pdo);
                 txid = txid.replace(/^0x/i, '').replace(/[\s\-]/g, '');
             }
 
-            const res = await apiCall('funds/verify-txid', 'POST', { order_id: orderId, txid });
+            const formData = new FormData();
+            formData.append('order_id', orderId);
+            formData.append('txid', txid);
+
+            const fileInput = document.getElementById('gateway-proof-file');
+            if (fileInput && fileInput.files && fileInput.files[0]) {
+                formData.append('screenshot', fileInput.files[0]);
+            }
+
+            const res = await apiCall('funds/verify-txid', 'POST', formData);
             if (res.success) {
-                showToast('Fund activated! Baseline balance credited.', 'success');
+                showToast(res.message || 'Activation request submitted! Status: Pending Verification / Under Review.', 'success');
                 navigateTo('dashboard');
             } else {
-                showToast(res.error || 'TXID verification failed', 'error');
+                showToast(res.error || 'Submission failed', 'error');
                 btn.disabled = false;
-                btn.innerHTML = `<i data-lucide="shield-check" class="w-4 h-4"></i><span>Verify Transaction & Unlock Fund</span>`;
+                btn.innerHTML = `<i data-lucide="send" class="w-4 h-4"></i><span>Submit Activation Request for Review</span>`;
                 lucide.createIcons();
             }
         }
@@ -2072,6 +2454,95 @@ ensureDatabaseSchema($pdo);
             } else {
                 showToast(res.error || 'Action failed', 'error');
             }
+        }
+
+        async function processActivation(orderId, actionType, note = '') {
+            if (!confirm(`Are you sure you want to ${actionType} this fund activation request?`)) {
+                return;
+            }
+            const res = await apiCall('admin/process-activation', 'POST', {
+                order_id: orderId,
+                action_type: actionType,
+                note: note,
+                reason: note,
+                rejection_reason: note
+            });
+
+            if (res.success) {
+                showToast(res.message || `Activation ${actionType.toLowerCase()}ed successfully.`, 'success');
+                navigateTo('admin');
+            } else {
+                showToast(res.error || 'Failed to process activation request', 'error');
+            }
+        }
+
+        function openRejectActivationModal(orderId, username, fundName) {
+            document.getElementById('reject-order-id').value = orderId;
+            document.getElementById('reject-target-desc').innerText = `You are rejecting the activation request of @${username || 'user'} for ${fundName || 'Fund'}.`;
+            document.getElementById('reject-reason-input').value = '';
+            document.getElementById('reject-activation-modal').classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeRejectActivationModal() {
+            document.getElementById('reject-activation-modal').classList.add('hidden');
+        }
+
+        function setQuickRejectReason(reason) {
+            document.getElementById('reject-reason-input').value = reason;
+        }
+
+        async function handleRejectActivationSubmit(e) {
+            e.preventDefault();
+            const orderId = document.getElementById('reject-order-id').value;
+            const reason = document.getElementById('reject-reason-input').value.trim();
+            if (!reason) {
+                showToast('Please provide a reason for rejection.', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('reject-submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Rejecting...</span>`;
+
+            try {
+                const res = await apiCall('admin/process-activation', 'POST', {
+                    order_id: orderId,
+                    action_type: 'REJECT',
+                    note: reason,
+                    reason: reason,
+                    rejection_reason: reason
+                });
+
+                if (res.success) {
+                    showToast(res.message || 'Activation request rejected.', 'success');
+                    closeRejectActivationModal();
+                    navigateTo('admin');
+                } else {
+                    showToast(res.error || 'Failed to reject activation request', 'error');
+                }
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i data-lucide="x" class="w-4 h-4"></i><span>Confirm Rejection</span>`;
+                lucide.createIcons();
+            }
+        }
+
+        function showProofModal(imageSrc) {
+            const modal = document.getElementById('proof-screenshot-modal');
+            const img = document.getElementById('proof-screenshot-img');
+            const download = document.getElementById('proof-screenshot-download');
+            if (!modal || !img) return;
+
+            img.src = imageSrc;
+            if (download) download.href = imageSrc;
+            modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeProofModal() {
+            const modal = document.getElementById('proof-screenshot-modal');
+            if (modal) modal.classList.add('hidden');
         }
 
         // =====================================================================

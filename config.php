@@ -155,6 +155,22 @@ function ensureDatabaseSchema(PDO $pdo): void {
                 if (!in_array('exchange_rate', $actCols)) {
                     try { $pdo->exec("ALTER TABLE `activation_orders` ADD COLUMN `exchange_rate` DECIMAL(10,2) DEFAULT 89.50 AFTER `usdt_amount`"); } catch (Throwable $e) {}
                 }
+                if (!in_array('proof_image_path', $actCols)) {
+                    try { $pdo->exec("ALTER TABLE `activation_orders` ADD COLUMN `proof_image_path` VARCHAR(255) DEFAULT NULL AFTER `txid`"); } catch (Throwable $e) {}
+                }
+                if (!in_array('proof_screenshot', $actCols)) {
+                    try { $pdo->exec("ALTER TABLE `activation_orders` ADD COLUMN `proof_screenshot` VARCHAR(255) DEFAULT NULL AFTER `proof_image_path`"); } catch (Throwable $e) {}
+                }
+                if (!in_array('admin_note', $actCols)) {
+                    try { $pdo->exec("ALTER TABLE `activation_orders` ADD COLUMN `admin_note` TEXT DEFAULT NULL AFTER `rejection_reason`"); } catch (Throwable $e) {}
+                }
+            }
+
+            // Ensure upload directories exist with security measures
+            $proofsDir = __DIR__ . '/assets/uploads/proofs/';
+            if (!is_dir($proofsDir)) {
+                @mkdir($proofsDir, 0755, true);
+                @file_put_contents($proofsDir . '.htaccess', "<FilesMatch \"\.(php|phtml|php5|php7|phar)$\">\nOrder Deny,Allow\nDeny from all\n</FilesMatch>\n");
             }
 
             // Check if user_funds exists and ensure balance and balance_reserved columns are present

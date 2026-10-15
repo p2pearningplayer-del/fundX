@@ -44,9 +44,12 @@ try {
     }
     $action = strtolower(trim($rawAction, '/'));
 
-    // Parse JSON request body
+    // Parse JSON request body & merge $_POST for multipart uploads
     $rawBody = file_get_contents('php://input');
     $body = json_decode($rawBody, true) ?: [];
+    if (!empty($_POST)) {
+        $body = array_merge($body, $_POST);
+    }
 
     // Router Dispatcher with Normalized Endpoints
     switch ($action) {
@@ -242,6 +245,26 @@ try {
             foreach ($funds as $f) {
                 $uf = $userFundsMap[$f['id']] ?? null;
                 $feeUsdt = !empty($f['activation_fee_usdt']) ? floatval($f['activation_fee_usdt']) : ($tierDefaults[$f['slug']] ?? ($tierDefaults[$f['id']] ?? 100.00));
+
+                $latestOrder = null;
+                if ($userId) {
+                    $loStmt = $pdo->prepare("
+                        SELECT id, order_code, usdt_amount, txid, txid_hash, status, proof_image_path, rejection_reason, created_at, updated_at 
+                        FROM activation_orders 
+                        WHERE user_id = ? AND fund_id = ? 
+                        ORDER BY created_at DESC LIMIT 1
+                    ");
+                    $loStmt->execute([$userId, $f['id']]);
+                    $latestOrder = $loStmt->fetch() ?: null;
+                }
+
+                $userState = $uf ? $uf['status'] : 'INACTIVE';
+                if ($userState !== 'ACTIVE') {
+                    if ($latestOrder && in_array($latestOrder['status'], ['PENDING_VERIFICATION', 'UNDER_REVIEW', 'PENDING'])) {
+                        $userState = 'PENDING_VERIFICATION';
+                    }
+                }
+
                 $results[] = [
                     'id' => $f['id'],
                     'slug' => $f['slug'],
@@ -254,9 +277,10 @@ try {
                     'max_task_amount' => floatval($f['max_task_amount']),
                     'baseline_valuation' => floatval($f['baseline_valuation']),
                     'is_active' => (bool)$f['is_active'],
-                    'user_state' => $uf ? $uf['status'] : 'INACTIVE',
+                    'user_state' => $userState,
                     'user_balance' => $uf ? floatval($uf['balance']) : 0.0,
                     'user_reserved' => $uf ? floatval($uf['balance_reserved']) : 0.0,
+                    'latest_order' => $latestOrder
                 ];
             }
 
@@ -375,13 +399,15 @@ try {
             break;
 
         case 'funds/verify-txid':
+        case 'funds/submit-proof':
         case 'verify-txid':
+        case 'submit-proof':
             $user = requireAuth($pdo);
             $orderId = trim($body['order_id'] ?? '');
             $rawTxid = trim($body['txid'] ?? '');
 
             if (!$orderId || !$rawTxid) {
-                jsonResponse(['success' => false, 'error' => 'Order ID and USDT TRC20 TXID are required'], 400);
+                jsonResponse(['success' => false, 'error' => 'Order ID and USDT TRC20 TXID or Reference Number are required'], 400);
             }
 
             // Clean & sanitize the TXID
@@ -397,9 +423,21 @@ try {
                 jsonResponse(['success' => false, 'error' => 'Invalid TXID format. Please enter a valid transaction hash or transfer reference.'], 400);
             }
 
+            $ordStmt = $pdo->prepare("
+                SELECT o.*, f.name as fund_name 
+                FROM activation_orders o 
+                JOIN funds f ON o.fund_id = f.id 
+                WHERE o.id = ? AND o.user_id = ?
+            ");
+            $ordStmt->execute([$orderId, $user['id']]);
+            $order = $ordStmt->fetch();
+            if (!$order) {
+                jsonResponse(['success' => false, 'error' => 'Activation order not found'], 404);
+            }
+
+            // Check if TXID already approved for another order
             $colStmt = $pdo->query("SHOW COLUMNS FROM activation_orders");
             $existingCols = $colStmt ? $colStmt->fetchAll(PDO::FETCH_COLUMN) : [];
-
             $dupConds = [];
             $dupParams = [];
             if (in_array('txid_hash', $existingCols)) {
@@ -411,24 +449,60 @@ try {
                 $dupParams[] = $txid;
             }
             if (!empty($dupConds)) {
-                $dupSql = "SELECT id FROM activation_orders WHERE (" . implode(' OR ', $dupConds) . ") AND status IN ('VERIFIED', 'SUBMITTED', 'ACTIVE')";
+                $dupSql = "SELECT id FROM activation_orders WHERE (" . implode(' OR ', $dupConds) . ") AND status IN ('APPROVED', 'ACTIVE') AND id != ?";
+                $dupParams[] = $orderId;
                 $dupStmt = $pdo->prepare($dupSql);
                 $dupStmt->execute($dupParams);
                 if ($dupStmt->fetch()) {
-                    jsonResponse(['success' => false, 'error' => 'This TXID has already been submitted or redeemed. Replay attacks are prohibited.'], 409);
+                    jsonResponse(['success' => false, 'error' => 'This TXID has already been redeemed for an approved activation. Replay attacks are prohibited.'], 409);
                 }
             }
 
-            $ordStmt = $pdo->prepare("SELECT * FROM activation_orders WHERE id = ? AND user_id = ?");
-            $ordStmt->execute([$orderId, $user['id']]);
-            $order = $ordStmt->fetch();
-            if (!$order) {
-                jsonResponse(['success' => false, 'error' => 'Activation order not found'], 404);
+            // Handle optional payment proof screenshot upload
+            $proofRelativePath = null;
+            $uploadFile = $_FILES['screenshot'] ?? $_FILES['proof_image'] ?? $_FILES['proof_screenshot'] ?? null;
+            if ($uploadFile && isset($uploadFile['tmp_name']) && $uploadFile['error'] === UPLOAD_ERR_OK) {
+                $ext = strtolower(pathinfo($uploadFile['name'], PATHINFO_EXTENSION));
+                $allowed = ['png', 'jpg', 'jpeg', 'webp'];
+                if (!in_array($ext, $allowed)) {
+                    jsonResponse(['success' => false, 'error' => 'Invalid screenshot format. Allowed formats: PNG, JPG, JPEG, WEBP.'], 400);
+                }
+                if ($uploadFile['size'] > 10 * 1024 * 1024) {
+                    jsonResponse(['success' => false, 'error' => 'Screenshot exceeds maximum 10MB size limit.'], 400);
+                }
+
+                $proofDir = __DIR__ . '/assets/uploads/proofs/';
+                if (!is_dir($proofDir)) {
+                    @mkdir($proofDir, 0755, true);
+                    @file_put_contents($proofDir . '.htaccess', "<FilesMatch \"\.(php|phtml|php5|php7|phar)$\">\nOrder Deny,Allow\nDeny from all\n</FilesMatch>\n");
+                }
+                $filename = 'proof_' . preg_replace('/[^a-zA-Z0-9]/', '', $order['order_code']) . '_' . time() . '_' . mt_rand(1000, 9999) . '.' . $ext;
+                $destination = $proofDir . $filename;
+                if (move_uploaded_file($uploadFile['tmp_name'], $destination)) {
+                    $proofRelativePath = '/assets/uploads/proofs/' . $filename;
+                }
+            } else if (!empty($body['proof_image_base64']) && preg_match('#^data:image/(\w+);base64,#i', $body['proof_image_base64'], $matches)) {
+                $ext = strtolower($matches[1]);
+                if (in_array($ext, ['png', 'jpg', 'jpeg', 'webp'])) {
+                    $b64Data = substr($body['proof_image_base64'], strpos($body['proof_image_base64'], ',') + 1);
+                    $decoded = base64_decode($b64Data);
+                    if ($decoded && strlen($decoded) <= 10 * 1024 * 1024) {
+                        $proofDir = __DIR__ . '/assets/uploads/proofs/';
+                        if (!is_dir($proofDir)) {
+                            @mkdir($proofDir, 0755, true);
+                            @file_put_contents($proofDir . '.htaccess', "<FilesMatch \"\.(php|phtml|php5|php7|phar)$\">\nOrder Deny,Allow\nDeny from all\n</FilesMatch>\n");
+                        }
+                        $filename = 'proof_' . preg_replace('/[^a-zA-Z0-9]/', '', $order['order_code']) . '_' . time() . '_' . mt_rand(1000, 9999) . '.' . $ext;
+                        if (file_put_contents($proofDir . $filename, $decoded)) {
+                            $proofRelativePath = '/assets/uploads/proofs/' . $filename;
+                        }
+                    }
+                }
             }
 
             $pdo->beginTransaction();
             try {
-                $updFields = ["status = 'VERIFIED'", "verified_at = NOW()"];
+                $updFields = ["status = 'PENDING_VERIFICATION'", "updated_at = NOW()"];
                 $updParams = [];
                 if (in_array('txid_hash', $existingCols)) {
                     $updFields[] = "txid_hash = ?";
@@ -438,75 +512,56 @@ try {
                     $updFields[] = "txid = ?";
                     $updParams[] = $txid;
                 }
+                if ($proofRelativePath) {
+                    if (in_array('proof_image_path', $existingCols)) {
+                        $updFields[] = "proof_image_path = ?";
+                        $updParams[] = $proofRelativePath;
+                    }
+                    if (in_array('proof_screenshot', $existingCols)) {
+                        $updFields[] = "proof_screenshot = ?";
+                        $updParams[] = $proofRelativePath;
+                    }
+                }
                 $updParams[] = $orderId;
                 $upd = $pdo->prepare("UPDATE activation_orders SET " . implode(', ', $updFields) . " WHERE id = ?");
                 $upd->execute($updParams);
 
-                $fStmt = $pdo->prepare("SELECT baseline_valuation FROM funds WHERE id = ?");
-                $fStmt->execute([$order['fund_id']]);
-                $fundRow = $fStmt->fetch();
-                $baseline = $fundRow ? floatval($fundRow['baseline_valuation']) : 10000.0;
-
-                // Dynamically check columns in user_funds to prevent SQL 1054 error
-                try {
-                    $ufCols = $pdo->query("SHOW COLUMNS FROM `user_funds`")->fetchAll(PDO::FETCH_COLUMN);
-                } catch (Throwable $e) {
-                    $ufCols = [];
-                }
-
-                if (!in_array('balance', $ufCols)) {
-                    try {
-                        $pdo->exec("ALTER TABLE `user_funds` ADD COLUMN `balance` DECIMAL(14,2) NOT NULL DEFAULT 0.00 AFTER `status`");
-                        $ufCols[] = 'balance';
-                    } catch (Throwable $e) {}
-                }
-                if (!in_array('balance_reserved', $ufCols)) {
-                    try {
-                        $pdo->exec("ALTER TABLE `user_funds` ADD COLUMN `balance_reserved` DECIMAL(14,2) NOT NULL DEFAULT 0.00 AFTER `balance`");
-                        $ufCols[] = 'balance_reserved';
-                    } catch (Throwable $e) {}
-                }
-
-                $hasBal = in_array('balance', $ufCols);
-                $hasRes = in_array('balance_reserved', $ufCols);
-
-                if ($hasBal && $hasRes) {
-                    $actStmt = $pdo->prepare("
-                        INSERT INTO user_funds (id, user_id, fund_id, status, balance, balance_reserved, activated_at, created_at, updated_at)
-                        VALUES (UUID(), ?, ?, 'ACTIVE', ?, 0.00, NOW(), NOW(), NOW())
-                        ON DUPLICATE KEY UPDATE status = 'ACTIVE', activated_at = NOW(), balance = balance + VALUES(balance)
-                    ");
-                    $actStmt->execute([$user['id'], $order['fund_id'], $baseline]);
-                } else if ($hasBal) {
-                    $actStmt = $pdo->prepare("
-                        INSERT INTO user_funds (id, user_id, fund_id, status, balance, activated_at, created_at, updated_at)
-                        VALUES (UUID(), ?, ?, 'ACTIVE', ?, NOW(), NOW(), NOW())
-                        ON DUPLICATE KEY UPDATE status = 'ACTIVE', activated_at = NOW(), balance = balance + VALUES(balance)
-                    ");
-                    $actStmt->execute([$user['id'], $order['fund_id'], $baseline]);
+                // Update user_funds status to PENDING_VERIFICATION if not ACTIVE
+                $ufCheck = $pdo->prepare("SELECT status FROM user_funds WHERE user_id = ? AND fund_id = ?");
+                $ufCheck->execute([$user['id'], $order['fund_id']]);
+                $curUF = $ufCheck->fetch();
+                if ($curUF) {
+                    if ($curUF['status'] !== 'ACTIVE') {
+                        $pdo->prepare("UPDATE user_funds SET status = 'PENDING_VERIFICATION', updated_at = NOW() WHERE user_id = ? AND fund_id = ?")->execute([$user['id'], $order['fund_id']]);
+                    }
                 } else {
-                    $actStmt = $pdo->prepare("
-                        INSERT INTO user_funds (id, user_id, fund_id, status, activated_at, created_at, updated_at)
-                        VALUES (UUID(), ?, ?, 'ACTIVE', NOW(), NOW(), NOW())
-                        ON DUPLICATE KEY UPDATE status = 'ACTIVE', activated_at = NOW()
-                    ");
-                    $actStmt->execute([$user['id'], $order['fund_id']]);
+                    $pdo->prepare("INSERT INTO user_funds (id, user_id, fund_id, status, balance, balance_reserved, created_at, updated_at) VALUES (UUID(), ?, ?, 'PENDING_VERIFICATION', 0.00, 0.00, NOW(), NOW())")->execute([$user['id'], $order['fund_id']]);
                 }
 
-                recordLedgerEntry($pdo, $user['id'], $order['fund_id'], 'BASELINE_CREDIT', $baseline, 'ACTIVATION_ORDER', $orderId, "Baseline allocation credited upon fund activation (TXID: {$txid})");
+                // In-app notification for the user
+                try {
+                    $notifId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000, mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+                    $pdo->prepare("
+                        INSERT INTO in_app_notifications (id, user_id, type, title, message, is_read, created_at)
+                        VALUES (?, ?, 'ACTIVATION_SUBMITTED', 'Activation Request Under Review', ?, 0, NOW())
+                    ")->execute([$notifId, $user['id'], "Your payment proof for {$order['fund_name']} ({$order['usdt_amount']} USDT) has been submitted (TXID: {$txid}). Our compliance team is verifying the blockchain transaction."]);
+                } catch (Throwable $e) {}
 
-                logSecurityEvent($pdo, $user['id'], 'FUND_ACTIVATED', ['fund_id' => $order['fund_id'], 'txid' => $txid]);
+                logSecurityEvent($pdo, $user['id'], 'ACTIVATION_PROOF_SUBMITTED', ['fund_id' => $order['fund_id'], 'txid' => $txid, 'has_proof' => !empty($proofRelativePath)]);
 
                 $pdo->commit();
 
                 jsonResponse([
                     'success' => true,
-                    'message' => 'Fund successfully activated! Baseline balance has been credited.',
-                    'fund_id' => $order['fund_id']
+                    'message' => 'Activation request submitted successfully! Your fund status is now Pending Verification / Under Review. The compliance desk will verify your payment.',
+                    'status' => 'PENDING_VERIFICATION',
+                    'fund_id' => $order['fund_id'],
+                    'txid' => $txid,
+                    'proof_image_path' => $proofRelativePath
                 ]);
             } catch (Exception $e) {
                 $pdo->rollBack();
-                jsonResponse(['success' => false, 'error' => 'Verification failed: ' . $e->getMessage()], 500);
+                jsonResponse(['success' => false, 'error' => 'Submission failed: ' . $e->getMessage()], 500);
             }
             break;
 
@@ -914,7 +969,7 @@ try {
             $totalUsers = $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'USER'")->fetchColumn();
             $activeFunds = $pdo->query("SELECT COUNT(*) FROM user_funds WHERE status = 'ACTIVE'")->fetchColumn();
             $pendingWithdrawals = $pdo->query("SELECT COUNT(*) FROM withdrawals WHERE status = 'PENDING'")->fetchColumn();
-            $pendingTXIDs = $pdo->query("SELECT COUNT(*) FROM activation_orders WHERE status = 'SUBMITTED'")->fetchColumn();
+            $pendingActivations = $pdo->query("SELECT COUNT(*) FROM activation_orders WHERE status IN ('PENDING_VERIFICATION', 'UNDER_REVIEW', 'PENDING', 'SUBMITTED')")->fetchColumn();
             $totalVolume = $pdo->query("SELECT COALESCE(SUM(amount), 0) FROM ledger_entries WHERE entry_type = 'COMMISSION_CREDIT'")->fetchColumn();
 
             jsonResponse([
@@ -923,7 +978,8 @@ try {
                     'total_users' => intval($totalUsers),
                     'active_funds' => intval($activeFunds),
                     'pending_withdrawals' => intval($pendingWithdrawals),
-                    'pending_txids' => intval($pendingTXIDs),
+                    'pending_activations' => intval($pendingActivations),
+                    'pending_txids' => intval($pendingActivations),
                     'total_commission_volume' => floatval($totalVolume)
                 ]
             ]);
@@ -1001,16 +1057,141 @@ try {
             jsonResponse(['success' => true, 'funds' => $funds]);
             break;
 
+        case 'admin/activation-requests':
         case 'admin/txids':
             $admin = requireAdmin($pdo);
             $stmt = $pdo->query("
-                SELECT o.*, u.username, u.legal_name, u.mobile, f.name as fund_name 
+                SELECT o.*, u.username, u.legal_name, u.mobile, u.email, f.name as fund_name, f.slug as fund_slug 
                 FROM activation_orders o
                 JOIN users u ON o.user_id = u.id
                 JOIN funds f ON o.fund_id = f.id
-                ORDER BY o.created_at DESC LIMIT 50
+                ORDER BY 
+                    CASE WHEN o.status IN ('PENDING_VERIFICATION', 'UNDER_REVIEW', 'PENDING') THEN 1 
+                         WHEN o.status = 'PENDING_PAYMENT' THEN 2 
+                         ELSE 3 END, 
+                    o.updated_at DESC 
+                LIMIT 100
             ");
-            jsonResponse(['success' => true, 'orders' => $stmt->fetchAll()]);
+            $orders = $stmt->fetchAll();
+            jsonResponse(['success' => true, 'orders' => $orders]);
+            break;
+
+        case 'admin/process-activation':
+            $admin = requireAdmin($pdo);
+            $orderId = trim($body['order_id'] ?? '');
+            $actionType = strtoupper(trim($body['action_type'] ?? $body['action'] ?? ''));
+            $adminNote = trim($body['note'] ?? $body['rejection_reason'] ?? $body['admin_note'] ?? '');
+
+            if (!$orderId || !in_array($actionType, ['APPROVE', 'REJECT'])) {
+                jsonResponse(['success' => false, 'error' => 'Valid Order ID and action type (APPROVE or REJECT) are required'], 400);
+            }
+
+            $ordStmt = $pdo->prepare("
+                SELECT o.*, f.name as fund_name, f.baseline_valuation, u.username, u.legal_name 
+                FROM activation_orders o
+                JOIN funds f ON o.fund_id = f.id
+                JOIN users u ON o.user_id = u.id
+                WHERE o.id = ?
+            ");
+            $ordStmt->execute([$orderId]);
+            $order = $ordStmt->fetch();
+
+            if (!$order) {
+                jsonResponse(['success' => false, 'error' => 'Activation order not found'], 404);
+            }
+
+            $pdo->beginTransaction();
+            try {
+                if ($actionType === 'APPROVE') {
+                    // Update activation order
+                    $updOrd = $pdo->prepare("
+                        UPDATE activation_orders 
+                        SET status = 'APPROVED', verified_at = NOW(), verified_by = ?, admin_note = ?, updated_at = NOW() 
+                        WHERE id = ?
+                    ");
+                    $updOrd->execute([$admin['id'], $adminNote ?: 'Verified and approved by admin', $orderId]);
+
+                    $baseline = floatval($order['baseline_valuation']) ?: 10000.0;
+
+                    // Ensure user_funds columns exist
+                    $ufCols = $pdo->query("SHOW COLUMNS FROM `user_funds`")->fetchAll(PDO::FETCH_COLUMN);
+                    $hasBal = in_array('balance', $ufCols);
+                    $hasRes = in_array('balance_reserved', $ufCols);
+
+                    if ($hasBal && $hasRes) {
+                        $actStmt = $pdo->prepare("
+                            INSERT INTO user_funds (id, user_id, fund_id, status, balance, balance_reserved, activated_at, created_at, updated_at)
+                            VALUES (UUID(), ?, ?, 'ACTIVE', ?, 0.00, NOW(), NOW(), NOW())
+                            ON DUPLICATE KEY UPDATE status = 'ACTIVE', activated_at = NOW(), balance = balance + VALUES(balance)
+                        ");
+                        $actStmt->execute([$order['user_id'], $order['fund_id'], $baseline]);
+                    } else if ($hasBal) {
+                        $actStmt = $pdo->prepare("
+                            INSERT INTO user_funds (id, user_id, fund_id, status, balance, activated_at, created_at, updated_at)
+                            VALUES (UUID(), ?, ?, 'ACTIVE', ?, NOW(), NOW(), NOW())
+                            ON DUPLICATE KEY UPDATE status = 'ACTIVE', activated_at = NOW(), balance = balance + VALUES(balance)
+                        ");
+                        $actStmt->execute([$order['user_id'], $order['fund_id'], $baseline]);
+                    } else {
+                        $actStmt = $pdo->prepare("
+                            INSERT INTO user_funds (id, user_id, fund_id, status, activated_at, created_at, updated_at)
+                            VALUES (UUID(), ?, ?, 'ACTIVE', NOW(), NOW(), NOW())
+                            ON DUPLICATE KEY UPDATE status = 'ACTIVE', activated_at = NOW()
+                        ");
+                        $actStmt->execute([$order['user_id'], $order['fund_id']]);
+                    }
+
+                    // Record ledger entry
+                    recordLedgerEntry($pdo, $order['user_id'], $order['fund_id'], 'BASELINE_CREDIT', $baseline, 'ACTIVATION_ORDER', $orderId, "Baseline allocation credited upon admin approval (TXID: " . ($order['txid'] ?: $order['txid_hash'] ?: 'MANUAL') . ")");
+
+                    // In-app notification for the user
+                    try {
+                        $notifId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000, mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+                        $pdo->prepare("
+                            INSERT INTO in_app_notifications (id, user_id, type, title, message, is_read, created_at)
+                            VALUES (?, ?, 'FUND_ACTIVATED', 'Fund Activation Approved!', ?, 0, NOW())
+                        ")->execute([$notifId, $order['user_id'], "Congratulations! Your activation for {$order['fund_name']} ({$order['usdt_amount']} USDT) has been verified & approved. ₹" . number_format($baseline, 2) . " baseline allocation has been credited to your account."]);
+                    } catch (Throwable $e) {}
+
+                    logSecurityEvent($pdo, $order['user_id'], 'FUND_ACTIVATION_APPROVED', ['order_id' => $orderId, 'admin_id' => $admin['id']]);
+
+                    $pdo->commit();
+                    jsonResponse(['success' => true, 'message' => "Activation approved successfully! {$order['fund_name']} is now ACTIVE for @{$order['username']}."]);
+
+                } else { // REJECT
+                    $rejectionReason = $adminNote ?: 'Payment verification failed. Invalid or unconfirmed blockchain transaction.';
+                    $updOrd = $pdo->prepare("
+                        UPDATE activation_orders 
+                        SET status = 'REJECTED', verified_at = NOW(), verified_by = ?, rejection_reason = ?, admin_note = ?, updated_at = NOW() 
+                        WHERE id = ?
+                    ");
+                    $updOrd->execute([$admin['id'], $rejectionReason, $rejectionReason, $orderId]);
+
+                    // Reset user_funds status to LOCKED if not already ACTIVE
+                    $pdo->prepare("
+                        UPDATE user_funds 
+                        SET status = 'LOCKED', updated_at = NOW() 
+                        WHERE user_id = ? AND fund_id = ? AND status != 'ACTIVE'
+                    ")->execute([$order['user_id'], $order['fund_id']]);
+
+                    // In-app notification for the user
+                    try {
+                        $notifId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000, mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+                        $pdo->prepare("
+                            INSERT INTO in_app_notifications (id, user_id, type, title, message, is_read, created_at)
+                            VALUES (?, ?, 'ACTIVATION_REJECTED', 'Activation Request Rejected', ?, 0, NOW())
+                        ")->execute([$notifId, $order['user_id'], "Your activation request for {$order['fund_name']} was rejected: {$rejectionReason}. Please re-check transaction hash and submit valid payment proof."]);
+                    } catch (Throwable $e) {}
+
+                    logSecurityEvent($pdo, $order['user_id'], 'FUND_ACTIVATION_REJECTED', ['order_id' => $orderId, 'admin_id' => $admin['id'], 'reason' => $rejectionReason]);
+
+                    $pdo->commit();
+                    jsonResponse(['success' => true, 'message' => "Activation request rejected. User @{$order['username']} notified to re-submit proof."]);
+                }
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                jsonResponse(['success' => false, 'error' => 'Failed to process activation: ' . $e->getMessage()], 500);
+            }
             break;
 
         case 'admin/disbursements':
