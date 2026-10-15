@@ -5,7 +5,7 @@
 # ==============================================================================
 
 Options -Indexes
-DirectoryIndex index.php
+DirectoryIndex index.php admin.php
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
@@ -22,6 +22,15 @@ DirectoryIndex index.php
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^api/(.*)$ api.php?endpoint=$1 [QSA,L]
+
+    # 4. Route /admin and /admin/* directly to admin.php
+    RewriteRule ^admin/?$ admin.php [QSA,L]
+    RewriteRule ^admin/(.*)$ admin.php?sub=$1 [QSA,L]
+
+    # 5. SPA Fallback: Route any route (e.g. /login, /tasks, /wallet) to index.php
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ index.php?route=$1 [QSA,L]
 </IfModule>
 
 # Security & Optimization Headers

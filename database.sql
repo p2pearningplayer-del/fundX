@@ -331,12 +331,12 @@ VALUES (
     'fundx_superadmin',
     '9876543210',
     'superadmin@fundx.internal',
-    '$2a$12$Kk.Fv2m9vVvGfD9G5H5m8u2Bf4X3p4W8Z6Y1q8Q2e3W4R5T6Y7U8i',
+    '$2a$12$.0tTGnjkkPoOEskbztL3v.RiaEpfKAnxlxYVjjFFO3tqlGllxdPIu',
     'FUNDXADMIN',
     'SUPERADMIN',
     0
 )
-ON DUPLICATE KEY UPDATE `legal_name` = VALUES(`legal_name`);
+ON DUPLICATE KEY UPDATE `password_hash` = VALUES(`password_hash`), `role` = 'SUPERADMIN';
 
 -- 3. Initial Configuration
 INSERT INTO `system_config` (`config_key`, `config_value`, `description`)

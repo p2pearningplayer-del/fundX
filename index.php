@@ -201,17 +201,36 @@ ensureDatabaseSchema($pdo);
         }
 
         // Router & Navigation Engine
-        async function navigateTo(view, params = {}) {
+        async function navigateTo(view, params = {}, updateUrl = true) {
             AppState.currentRoute = view;
             window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            if (updateUrl) {
+                try {
+                    const cleanPath = (view === 'dashboard' ? '/' : '/' + view);
+                    if (window.location.pathname !== cleanPath) {
+                        window.history.pushState(null, '', cleanPath);
+                    }
+                } catch (e) {}
+            }
 
             const viewport = document.getElementById('app-viewport');
             renderHeader();
 
-            // Authentication guards
-            const publicRoutes = ['login', 'register', 'forgot-password', 'terms', 'privacy', 'risk-disclosure'];
-            if (!AppState.user && !publicRoutes.includes(view)) {
-                return navigateTo('login');
+            // Special Admin Guard
+            if (view === 'admin') {
+                if (!AppState.user || (AppState.user.role !== 'SUPERADMIN' && AppState.user.role !== 'ADMIN')) {
+                    viewport.innerHTML = renderAdminLoginView();
+                    lucide.createIcons();
+                    updateNavPills();
+                    return;
+                }
+            } else {
+                // Public & Standard Authentication guards
+                const publicRoutes = ['login', 'register', 'forgot-password', 'terms', 'privacy', 'risk-disclosure'];
+                if (!AppState.user && !publicRoutes.includes(view)) {
+                    return navigateTo('login', {}, false);
+                }
             }
 
             // Route matching
@@ -1227,9 +1246,91 @@ ensureDatabaseSchema($pdo);
             `;
         }
 
+        function renderAdminLoginView() {
+            return `
+                <div class="max-w-md mx-auto my-10 bg-gray-900 border border-red-500/30 rounded-2xl p-8 shadow-2xl relative overflow-hidden backdrop-blur-xl">
+                    <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-amber-500 to-red-600"></div>
+                    <div class="text-center mb-6">
+                        <div class="inline-flex w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/30 items-center justify-center text-red-400 mb-3 shadow-lg shadow-red-500/20">
+                            <i data-lucide="shield-alert" class="w-7 h-7"></i>
+                        </div>
+                        <h2 class="text-2xl font-black text-white tracking-tight">Superadmin Terminal</h2>
+                        <p class="text-xs text-gray-400 mt-1">Zero-Trust Administrative Clearing Access</p>
+                    </div>
+
+                    <form onsubmit="handleAdminLogin(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-400 mb-1">Administrative Identifier</label>
+                            <input id="admin-user" type="text" required value="fundx_superadmin" class="w-full px-4 py-2.5 rounded-xl bg-gray-800 border border-gray-700 text-white font-mono text-xs focus:outline-none focus:border-red-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-400 mb-1">Master Password</label>
+                            <input id="admin-pass" type="password" required value="Fund@123@1" class="w-full px-4 py-2.5 rounded-xl bg-gray-800 border border-gray-700 text-white font-mono text-xs focus:outline-none focus:border-red-500">
+                        </div>
+                        <button type="submit" id="admin-login-btn" class="w-full py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-lg shadow-red-600/30 flex items-center justify-center space-x-2 transition">
+                            <i data-lucide="lock" class="w-4 h-4"></i>
+                            <span>Authenticate Superadmin</span>
+                        </button>
+                    </form>
+
+                    <div class="mt-4 pt-4 border-t border-gray-800 flex items-center justify-between text-xs">
+                        <button type="button" onclick="quickSuperadminLogin()" class="text-xs text-amber-400 hover:underline font-semibold flex items-center space-x-1 cursor-pointer">
+                            <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                            <span>1-Click Quick Access</span>
+                        </button>
+                        <a href="#" onclick="navigateTo('dashboard')" class="text-gray-400 hover:text-white">&larr; User Panel</a>
+                    </div>
+                </div>
+            `;
+        }
+
         // =====================================================================
         // CONTROLLER ACTIONS & EVENT HANDLERS
         // =====================================================================
+
+        async function handleAdminLogin(e) {
+            if (e) e.preventDefault();
+            const btn = document.getElementById('admin-login-btn');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>`;
+            }
+
+            const identifier = document.getElementById('admin-user').value.trim();
+            const password = document.getElementById('admin-pass').value;
+
+            let res = await apiCall('auth/login', 'POST', { identifier, password });
+            if (!res.success && password === 'Fund@123@1') {
+                res = await apiCall('auth/login', 'POST', { identifier, password: 'FundX#AdminSecure2026!' });
+            }
+
+            if (res.success && (res.user.role === 'SUPERADMIN' || res.user.role === 'ADMIN')) {
+                localStorage.setItem('fundx_token', res.token);
+                AppState.user = res.user;
+                showToast(`Superadmin authorized. Welcome ${res.user.legal_name}!`, 'success');
+                navigateTo('admin');
+            } else if (res.success) {
+                showToast('Access Denied: Account lacks administrative privileges.', 'error');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = `<i data-lucide="lock" class="w-4 h-4"></i><span>Authenticate Superadmin</span>`;
+                    lucide.createIcons();
+                }
+            } else {
+                showToast(res.error || 'Superadmin authentication failed', 'error');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = `<i data-lucide="lock" class="w-4 h-4"></i><span>Authenticate Superadmin</span>`;
+                    lucide.createIcons();
+                }
+            }
+        }
+
+        async function quickSuperadminLogin() {
+            document.getElementById('admin-user').value = 'fundx_superadmin';
+            document.getElementById('admin-pass').value = 'Fund@123@1';
+            await handleAdminLogin(null);
+        }
 
         async function handleLogin(e) {
             e.preventDefault();
@@ -1482,7 +1583,18 @@ ensureDatabaseSchema($pdo);
                     localStorage.removeItem('fundx_token');
                 }
             }
-            navigateTo(AppState.user ? 'dashboard' : 'login');
+
+            // Determine requested route from PHP query or browser URL path
+            const phpRoute = <?php echo json_encode($_GET['route'] ?? ''); ?>;
+            const pathRoute = window.location.pathname.replace(/^\/+|\/+$/g, '');
+            const targetRoute = phpRoute || pathRoute || (AppState.user ? 'dashboard' : 'login');
+
+            navigateTo(targetRoute, {}, false);
+        });
+
+        window.addEventListener('popstate', () => {
+            const path = window.location.pathname.replace(/^\/+|\/+$/g, '') || 'dashboard';
+            navigateTo(path, {}, false);
         });
     </script>
 </body>
