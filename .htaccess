@@ -1,0 +1,41 @@
+# ==============================================================================
+# FundX Panel — Hostinger Production Apache / LiteSpeed Configuration
+# Target Domain: https://fundxx.in/
+# Resolves 403 Forbidden by routing all traffic to Node.js / server.js
+# ==============================================================================
+
+Options -Indexes
+DirectoryIndex disabled
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # 1. Force HTTPS
+    RewriteCond %{HTTPS} off
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # 2. Prevent direct access to sensitive config files
+    RewriteRule ^(\.env|\.git|database\.sql|schema\.sql) - [F,L]
+
+    # 3. Reverse Proxy all requests to the running FundX Node.js server (Port 3000)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ http://127.0.0.1:3000/$1 [P,L]
+
+    # 4. Proxy root requests
+    RewriteRule ^$ http://127.0.0.1:3000/ [P,L]
+</IfModule>
+
+<IfModule mod_proxy.c>
+    ProxyPreserveHost On
+    ProxyPassReverse / http://127.0.0.1:3000/
+</IfModule>
+
+# Security & Header Configurations
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+    Header set Referrer-Policy "origin-when-cross-origin"
+</IfModule>
