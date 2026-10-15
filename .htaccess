@@ -1,10 +1,11 @@
 # ==============================================================================
-# FundX Panel — Hostinger Production Web Server Configuration
+# FundX Panel — Hostinger Production Apache / LiteSpeed PHP Web Server
 # Target Domain: https://fundxx.in/
+# Native PHP & MySQL Configuration — Zero Node.js Requirement
 # ==============================================================================
 
 Options -Indexes
-DirectoryIndex index.php index.html
+DirectoryIndex index.php
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
@@ -14,14 +15,13 @@ DirectoryIndex index.php index.html
     RewriteCond %{HTTPS} off
     RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
-    # 2. Block direct access to sensitive configuration files
-    RewriteRule ^(\.env|\.git|database\.sql|schema\.sql|server-error\.log|data\/.*) - [F,L]
-</IfModule>
+    # 2. Prevent direct access to sensitive configuration and data files
+    RewriteRule ^(\.env|\.git|database\.sql|schema\.sql|config\.php|data\/.*) - [F,L]
 
-# Hostinger CloudLinux / LiteSpeed Passenger Engine Integration
-<IfModule mod_passenger.c>
-    PassengerAppType node
-    PassengerStartupFile server.js
+    # 3. Clean REST API Routing: route /api/* to api.php?endpoint=*
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^api/(.*)$ api.php?endpoint=$1 [QSA,L]
 </IfModule>
 
 # Security & Optimization Headers
