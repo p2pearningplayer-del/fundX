@@ -94,7 +94,21 @@ try {
             // Auto-seed isolated fund balances
             $fundsStmt = $pdo->query("SELECT id FROM funds");
             $funds = $fundsStmt->fetchAll();
-            $insFund = $pdo->prepare("INSERT INTO user_funds (id, user_id, fund_id, status, balance, balance_reserved, created_at, updated_at) VALUES (?, ?, ?, 'INACTIVE', 0.00, 0.00, NOW(), NOW())");
+            try {
+                $ufCols = $pdo->query("SHOW COLUMNS FROM `user_funds`")->fetchAll(PDO::FETCH_COLUMN);
+            } catch (Throwable $e) {
+                $ufCols = [];
+            }
+            $hasBal = in_array('balance', $ufCols);
+            $hasRes = in_array('balance_reserved', $ufCols);
+
+            if ($hasBal && $hasRes) {
+                $insFund = $pdo->prepare("INSERT INTO user_funds (id, user_id, fund_id, status, balance, balance_reserved, created_at, updated_at) VALUES (?, ?, ?, 'INACTIVE', 0.00, 0.00, NOW(), NOW())");
+            } else if ($hasBal) {
+                $insFund = $pdo->prepare("INSERT INTO user_funds (id, user_id, fund_id, status, balance, created_at, updated_at) VALUES (?, ?, ?, 'INACTIVE', 0.00, NOW(), NOW())");
+            } else {
+                $insFund = $pdo->prepare("INSERT INTO user_funds (id, user_id, fund_id, status, created_at, updated_at) VALUES (?, ?, ?, 'INACTIVE', NOW(), NOW())");
+            }
             foreach ($funds as $f) {
                 $ufId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000, mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
                 $insFund->execute([$ufId, $userId, $f['id']]);
@@ -433,12 +447,51 @@ try {
                 $fundRow = $fStmt->fetch();
                 $baseline = $fundRow ? floatval($fundRow['baseline_valuation']) : 10000.0;
 
-                $actStmt = $pdo->prepare("
-                    INSERT INTO user_funds (id, user_id, fund_id, status, balance, balance_reserved, activated_at, created_at, updated_at)
-                    VALUES (UUID(), ?, ?, 'ACTIVE', ?, 0.00, NOW(), NOW(), NOW())
-                    ON DUPLICATE KEY UPDATE status = 'ACTIVE', activated_at = NOW(), balance = balance + VALUES(balance)
-                ");
-                $actStmt->execute([$user['id'], $order['fund_id'], $baseline]);
+                // Dynamically check columns in user_funds to prevent SQL 1054 error
+                try {
+                    $ufCols = $pdo->query("SHOW COLUMNS FROM `user_funds`")->fetchAll(PDO::FETCH_COLUMN);
+                } catch (Throwable $e) {
+                    $ufCols = [];
+                }
+
+                if (!in_array('balance', $ufCols)) {
+                    try {
+                        $pdo->exec("ALTER TABLE `user_funds` ADD COLUMN `balance` DECIMAL(14,2) NOT NULL DEFAULT 0.00 AFTER `status`");
+                        $ufCols[] = 'balance';
+                    } catch (Throwable $e) {}
+                }
+                if (!in_array('balance_reserved', $ufCols)) {
+                    try {
+                        $pdo->exec("ALTER TABLE `user_funds` ADD COLUMN `balance_reserved` DECIMAL(14,2) NOT NULL DEFAULT 0.00 AFTER `balance`");
+                        $ufCols[] = 'balance_reserved';
+                    } catch (Throwable $e) {}
+                }
+
+                $hasBal = in_array('balance', $ufCols);
+                $hasRes = in_array('balance_reserved', $ufCols);
+
+                if ($hasBal && $hasRes) {
+                    $actStmt = $pdo->prepare("
+                        INSERT INTO user_funds (id, user_id, fund_id, status, balance, balance_reserved, activated_at, created_at, updated_at)
+                        VALUES (UUID(), ?, ?, 'ACTIVE', ?, 0.00, NOW(), NOW(), NOW())
+                        ON DUPLICATE KEY UPDATE status = 'ACTIVE', activated_at = NOW(), balance = balance + VALUES(balance)
+                    ");
+                    $actStmt->execute([$user['id'], $order['fund_id'], $baseline]);
+                } else if ($hasBal) {
+                    $actStmt = $pdo->prepare("
+                        INSERT INTO user_funds (id, user_id, fund_id, status, balance, activated_at, created_at, updated_at)
+                        VALUES (UUID(), ?, ?, 'ACTIVE', ?, NOW(), NOW(), NOW())
+                        ON DUPLICATE KEY UPDATE status = 'ACTIVE', activated_at = NOW(), balance = balance + VALUES(balance)
+                    ");
+                    $actStmt->execute([$user['id'], $order['fund_id'], $baseline]);
+                } else {
+                    $actStmt = $pdo->prepare("
+                        INSERT INTO user_funds (id, user_id, fund_id, status, activated_at, created_at, updated_at)
+                        VALUES (UUID(), ?, ?, 'ACTIVE', NOW(), NOW(), NOW())
+                        ON DUPLICATE KEY UPDATE status = 'ACTIVE', activated_at = NOW()
+                    ");
+                    $actStmt->execute([$user['id'], $order['fund_id']]);
+                }
 
                 recordLedgerEntry($pdo, $user['id'], $order['fund_id'], 'BASELINE_CREDIT', $baseline, 'ACTIVATION_ORDER', $orderId, "Baseline allocation credited upon fund activation (TXID: {$txid})");
 

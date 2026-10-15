@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS `user_funds` (
     `user_id` VARCHAR(36) NOT NULL,
     `fund_id` VARCHAR(36) NOT NULL,
     `status` VARCHAR(20) NOT NULL DEFAULT 'LOCKED',
+    `balance` DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    `balance_reserved` DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
     `activated_at` DATETIME DEFAULT NULL,
     `expires_at` DATETIME DEFAULT NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -135,22 +137,23 @@ CREATE TABLE IF NOT EXISTS `activation_orders` (
 CREATE TABLE IF NOT EXISTS `bank_accounts` (
     `id` VARCHAR(36) NOT NULL,
     `user_id` VARCHAR(36) NOT NULL,
-    `fund_id` VARCHAR(36) NOT NULL,
-    `account_holder_encrypted` TEXT NOT NULL,
+    `fund_id` VARCHAR(36) DEFAULT NULL,
     `bank_name` VARCHAR(100) NOT NULL,
+    `account_holder_name` VARCHAR(150) DEFAULT NULL,
+    `account_holder_encrypted` TEXT DEFAULT NULL,
+    `encrypted_account_number` TEXT DEFAULT NULL,
+    `account_number_encrypted` TEXT DEFAULT NULL,
+    `masked_account` VARCHAR(24) DEFAULT NULL,
+    `account_number_masked` VARCHAR(24) DEFAULT NULL,
     `ifsc_code` VARCHAR(11) NOT NULL,
-    `account_number_encrypted` TEXT NOT NULL,
-    `account_number_masked` VARCHAR(24) NOT NULL,
     `account_type` VARCHAR(20) NOT NULL DEFAULT 'SAVINGS',
     `is_verified` TINYINT(1) NOT NULL DEFAULT 1,
     `is_immutable` TINYINT(1) NOT NULL DEFAULT 1,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uq_bank_user_fund` (`user_id`, `fund_id`),
     KEY `idx_bank_user` (`user_id`),
-    CONSTRAINT `fk_bank_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_bank_fund` FOREIGN KEY (`fund_id`) REFERENCES `funds` (`id`) ON DELETE RESTRICT
+    CONSTRAINT `fk_bank_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 8. Table: tasks
@@ -198,21 +201,25 @@ CREATE TABLE IF NOT EXISTS `demo_tasks` (
 
 -- 10. Table: ledger_entries
 CREATE TABLE IF NOT EXISTS `ledger_entries` (
-    `id` VARCHAR(32) NOT NULL,
+    `id` VARCHAR(36) NOT NULL,
     `user_id` VARCHAR(36) NOT NULL,
     `fund_id` VARCHAR(36) NOT NULL,
     `task_id` VARCHAR(36) DEFAULT NULL,
     `entry_type` VARCHAR(32) NOT NULL,
+    `amount` DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    `balance_before` DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    `balance_after` DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    `reference_type` VARCHAR(50) DEFAULT NULL,
+    `reference_id` VARCHAR(64) DEFAULT NULL,
+    `description` TEXT DEFAULT NULL,
     `debit_amount` DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
     `credit_amount` DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
-    `calculation_basis` VARCHAR(120) NOT NULL,
-    `balance_after` DECIMAL(14, 2) NOT NULL,
+    `calculation_basis` VARCHAR(120) DEFAULT NULL,
     `status` VARCHAR(20) NOT NULL DEFAULT 'AVAILABLE',
-    `idempotency_key` VARCHAR(64) NOT NULL,
+    `idempotency_key` VARCHAR(64) DEFAULT NULL,
     `metadata` TEXT DEFAULT NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uq_ledger_idempotency` (`idempotency_key`),
     KEY `idx_ledger_user_fund` (`user_id`, `fund_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -156,6 +156,54 @@ function ensureDatabaseSchema(PDO $pdo): void {
                     try { $pdo->exec("ALTER TABLE `activation_orders` ADD COLUMN `exchange_rate` DECIMAL(10,2) DEFAULT 89.50 AFTER `usdt_amount`"); } catch (Throwable $e) {}
                 }
             }
+
+            // Check if user_funds exists and ensure balance and balance_reserved columns are present
+            $ufCheck = $pdo->query("SHOW TABLES LIKE 'user_funds'");
+            if ($ufCheck && $ufCheck->rowCount() > 0) {
+                $ufCols = $pdo->query("SHOW COLUMNS FROM `user_funds`")->fetchAll(PDO::FETCH_COLUMN);
+                if (!in_array('balance', $ufCols)) {
+                    try { $pdo->exec("ALTER TABLE `user_funds` ADD COLUMN `balance` DECIMAL(14,2) NOT NULL DEFAULT 0.00 AFTER `status`"); } catch (Throwable $e) {}
+                }
+                if (!in_array('balance_reserved', $ufCols)) {
+                    try { $pdo->exec("ALTER TABLE `user_funds` ADD COLUMN `balance_reserved` DECIMAL(14,2) NOT NULL DEFAULT 0.00 AFTER `balance`"); } catch (Throwable $e) {}
+                }
+            }
+
+            // Check if ledger_entries exists and ensure amount/reference compatibility columns
+            $leCheck = $pdo->query("SHOW TABLES LIKE 'ledger_entries'");
+            if ($leCheck && $leCheck->rowCount() > 0) {
+                $leCols = $pdo->query("SHOW COLUMNS FROM `ledger_entries`")->fetchAll(PDO::FETCH_COLUMN);
+                if (!in_array('amount', $leCols)) {
+                    try { $pdo->exec("ALTER TABLE `ledger_entries` ADD COLUMN `amount` DECIMAL(14,2) NOT NULL DEFAULT 0.00 AFTER `entry_type`"); } catch (Throwable $e) {}
+                }
+                if (!in_array('balance_before', $leCols)) {
+                    try { $pdo->exec("ALTER TABLE `ledger_entries` ADD COLUMN `balance_before` DECIMAL(14,2) NOT NULL DEFAULT 0.00 AFTER `amount`"); } catch (Throwable $e) {}
+                }
+                if (!in_array('reference_type', $leCols)) {
+                    try { $pdo->exec("ALTER TABLE `ledger_entries` ADD COLUMN `reference_type` VARCHAR(50) DEFAULT NULL AFTER `balance_after`"); } catch (Throwable $e) {}
+                }
+                if (!in_array('reference_id', $leCols)) {
+                    try { $pdo->exec("ALTER TABLE `ledger_entries` ADD COLUMN `reference_id` VARCHAR(64) DEFAULT NULL AFTER `reference_type`"); } catch (Throwable $e) {}
+                }
+                if (!in_array('description', $leCols)) {
+                    try { $pdo->exec("ALTER TABLE `ledger_entries` ADD COLUMN `description` TEXT DEFAULT NULL AFTER `reference_id`"); } catch (Throwable $e) {}
+                }
+            }
+
+            // Check if bank_accounts exists and ensure compatibility columns
+            $baCheck = $pdo->query("SHOW TABLES LIKE 'bank_accounts'");
+            if ($baCheck && $baCheck->rowCount() > 0) {
+                $baCols = $pdo->query("SHOW COLUMNS FROM `bank_accounts`")->fetchAll(PDO::FETCH_COLUMN);
+                if (!in_array('account_holder_name', $baCols)) {
+                    try { $pdo->exec("ALTER TABLE `bank_accounts` ADD COLUMN `account_holder_name` VARCHAR(150) DEFAULT NULL AFTER `bank_name`"); } catch (Throwable $e) {}
+                }
+                if (!in_array('encrypted_account_number', $baCols)) {
+                    try { $pdo->exec("ALTER TABLE `bank_accounts` ADD COLUMN `encrypted_account_number` TEXT DEFAULT NULL AFTER `account_holder_name`"); } catch (Throwable $e) {}
+                }
+                if (!in_array('masked_account', $baCols)) {
+                    try { $pdo->exec("ALTER TABLE `bank_accounts` ADD COLUMN `masked_account` VARCHAR(24) DEFAULT NULL AFTER `encrypted_account_number`"); } catch (Throwable $e) {}
+                }
+            }
         }
     } catch (Throwable $e) {
         // Schema check fail-safe
@@ -323,10 +371,15 @@ function recordLedgerEntry(
     ?string $referenceId = null,
     ?string $description = null
 ): string {
-    $stmt = $pdo->prepare("SELECT balance FROM user_funds WHERE user_id = ? AND fund_id = ? FOR UPDATE");
-    $stmt->execute([$userId, $fundId]);
-    $current = $stmt->fetch();
-    $balanceBefore = $current ? floatval($current['balance']) : 0.0;
+    $balanceBefore = 0.0;
+    try {
+        $stmt = $pdo->prepare("SELECT balance FROM user_funds WHERE user_id = ? AND fund_id = ? FOR UPDATE");
+        $stmt->execute([$userId, $fundId]);
+        $current = $stmt->fetch();
+        if ($current && isset($current['balance'])) {
+            $balanceBefore = floatval($current['balance']);
+        }
+    } catch (Throwable $e) {}
     
     if (in_array($entryType, ['COMMISSION_CREDIT', 'BASELINE_CREDIT', 'REFUND', 'DISBURSEMENT_ROLLBACK'])) {
         $balanceAfter = $balanceBefore + $amount;
@@ -342,14 +395,39 @@ function recordLedgerEntry(
         mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
     );
 
-    $ins = $pdo->prepare("
-        INSERT INTO ledger_entries (id, user_id, fund_id, entry_type, amount, balance_before, balance_after, reference_type, reference_id, description, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-    ");
-    $ins->execute([$id, $userId, $fundId, $entryType, $amount, $balanceBefore, $balanceAfter, $referenceType, $referenceId, $description]);
+    // Adaptive ledger insertion
+    try {
+        $lCols = $pdo->query("SHOW COLUMNS FROM `ledger_entries`")->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Throwable $e) {
+        $lCols = [];
+    }
 
-    $upd = $pdo->prepare("UPDATE user_funds SET balance = ?, updated_at = NOW() WHERE user_id = ? AND fund_id = ?");
-    $upd->execute([$balanceAfter, $userId, $fundId]);
+    if (empty($lCols) || in_array('amount', $lCols)) {
+        try {
+            $ins = $pdo->prepare("
+                INSERT INTO ledger_entries (id, user_id, fund_id, entry_type, amount, balance_before, balance_after, reference_type, reference_id, description, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            ");
+            $ins->execute([$id, $userId, $fundId, $entryType, $amount, $balanceBefore, $balanceAfter, $referenceType, $referenceId, $description]);
+        } catch (Throwable $e) {}
+    } else {
+        try {
+            $credit = in_array($entryType, ['COMMISSION_CREDIT', 'BASELINE_CREDIT', 'REFUND', 'DISBURSEMENT_ROLLBACK']) ? $amount : 0.00;
+            $debit = in_array($entryType, ['WITHDRAWAL_RESERVE', 'DEBIT', 'ACTIVATION_FEE']) ? $amount : 0.00;
+            $idempotency = 'LEDG-' . bin2hex(random_bytes(16));
+            $metadata = json_encode(['ref_type' => $referenceType, 'ref_id' => $referenceId, 'desc' => $description]);
+            $ins = $pdo->prepare("
+                INSERT INTO ledger_entries (id, user_id, fund_id, entry_type, debit_amount, credit_amount, calculation_basis, balance_after, status, idempotency_key, metadata, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'AVAILABLE', ?, ?, NOW())
+            ");
+            $ins->execute([substr($id, 0, 32), $userId, $fundId, $entryType, $debit, $credit, $description ?: $entryType, $balanceAfter, $idempotency, $metadata]);
+        } catch (Throwable $e) {}
+    }
+
+    try {
+        $upd = $pdo->prepare("UPDATE user_funds SET balance = ?, updated_at = NOW() WHERE user_id = ? AND fund_id = ?");
+        $upd->execute([$balanceAfter, $userId, $fundId]);
+    } catch (Throwable $e) {}
 
     return $id;
 }
