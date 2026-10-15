@@ -310,8 +310,6 @@ CREATE TABLE IF NOT EXISTS `system_config` (
     PRIMARY KEY (`config_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-SET FOREIGN_KEY_CHECKS = 1;
-
 -- ==============================================================================
 -- DEFAULT SEED DATA
 -- ==============================================================================
@@ -348,3 +346,6 @@ VALUES
 ('usdt_inr_peg_rate', '89.50', 'Reference FX Peg: 1 USDT = 89.50 INR'),
 ('order_expiry_minutes', '30', 'Activation Timer Window in minutes')
 ON DUPLICATE KEY UPDATE `config_value` = VALUES(`config_value`);
+
+SET FOREIGN_KEY_CHECKS = 1;
+
