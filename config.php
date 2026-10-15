@@ -135,6 +135,27 @@ function ensureDatabaseSchema(PDO $pdo): void {
                     $pdo->exec("UPDATE `funds` SET `activation_fee_usdt` = 200.00 WHERE `slug` = 'mix'");
                 }
             }
+
+            // Check if activation_orders exists and ensure compatibility columns
+            $actCheck = $pdo->query("SHOW TABLES LIKE 'activation_orders'");
+            if ($actCheck && $actCheck->rowCount() > 0) {
+                $actCols = $pdo->query("SHOW COLUMNS FROM `activation_orders`")->fetchAll(PDO::FETCH_COLUMN);
+                if (!in_array('inr_amount', $actCols)) {
+                    try { $pdo->exec("ALTER TABLE `activation_orders` ADD COLUMN `inr_amount` DECIMAL(14,2) DEFAULT NULL AFTER `usdt_amount`"); } catch (Throwable $e) {}
+                }
+                if (!in_array('wallet_address', $actCols)) {
+                    try { $pdo->exec("ALTER TABLE `activation_orders` ADD COLUMN `wallet_address` VARCHAR(64) DEFAULT NULL AFTER `trc20_deposit_wallet`"); } catch (Throwable $e) {}
+                }
+                if (!in_array('token_contract', $actCols)) {
+                    try { $pdo->exec("ALTER TABLE `activation_orders` ADD COLUMN `token_contract` VARCHAR(64) DEFAULT 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t' AFTER `trc20_contract_address`"); } catch (Throwable $e) {}
+                }
+                if (!in_array('txid', $actCols)) {
+                    try { $pdo->exec("ALTER TABLE `activation_orders` ADD COLUMN `txid` VARCHAR(128) DEFAULT NULL AFTER `txid_hash`"); } catch (Throwable $e) {}
+                }
+                if (!in_array('exchange_rate', $actCols)) {
+                    try { $pdo->exec("ALTER TABLE `activation_orders` ADD COLUMN `exchange_rate` DECIMAL(10,2) DEFAULT 89.50 AFTER `usdt_amount`"); } catch (Throwable $e) {}
+                }
+            }
         }
     } catch (Throwable $e) {
         // Schema check fail-safe

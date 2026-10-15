@@ -288,14 +288,58 @@ try {
             $feeInr = round($usdtAmount * $pegRate, 2);
 
             $orderId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000, mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
-
-            $ins = $pdo->prepare("
-                INSERT INTO activation_orders (id, user_id, fund_id, usdt_amount, inr_amount, exchange_rate, wallet_address, token_contract, status, expires_at, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', DATE_ADD(NOW(), INTERVAL 30 MINUTE), NOW())
-            ");
-            $ins->execute([$orderId, $user['id'], $fundId, $usdtAmount, $feeInr, $pegRate, $hotWallet, $tokenContract]);
-
+            $orderCode = 'ORD-' . strtoupper(substr(bin2hex(random_bytes(6)), 0, 10));
             $qrPayload = "tron:{$hotWallet}?token={$tokenContract}&value={$usdtAmount}";
+
+            // Fetch table columns to insert with 100% schema resilience
+            $colStmt = $pdo->query("SHOW COLUMNS FROM activation_orders");
+            $existingCols = $colStmt ? $colStmt->fetchAll(PDO::FETCH_COLUMN) : [];
+
+            $insertData = [
+                'id' => $orderId,
+                'user_id' => $user['id'],
+                'fund_id' => $fundId,
+                'usdt_amount' => $usdtAmount,
+                'status' => 'PENDING',
+                'created_at' => date('Y-m-d H:i:s')
+            ];
+
+            if (in_array('order_code', $existingCols)) {
+                $insertData['order_code'] = $orderCode;
+            }
+            if (in_array('fiat_equivalent_inr', $existingCols)) {
+                $insertData['fiat_equivalent_inr'] = $feeInr;
+            }
+            if (in_array('inr_amount', $existingCols)) {
+                $insertData['inr_amount'] = $feeInr;
+            }
+            if (in_array('trc20_deposit_wallet', $existingCols)) {
+                $insertData['trc20_deposit_wallet'] = $hotWallet;
+            }
+            if (in_array('wallet_address', $existingCols)) {
+                $insertData['wallet_address'] = $hotWallet;
+            }
+            if (in_array('trc20_contract_address', $existingCols)) {
+                $insertData['trc20_contract_address'] = $tokenContract;
+            }
+            if (in_array('token_contract', $existingCols)) {
+                $insertData['token_contract'] = $tokenContract;
+            }
+            if (in_array('exchange_rate', $existingCols)) {
+                $insertData['exchange_rate'] = $pegRate;
+            }
+            if (in_array('qr_payload', $existingCols)) {
+                $insertData['qr_payload'] = $qrPayload;
+            }
+            if (in_array('expires_at', $existingCols)) {
+                $insertData['expires_at'] = date('Y-m-d H:i:s', time() + 1800);
+            }
+
+            $fields = array_keys($insertData);
+            $placeholders = array_fill(0, count($fields), '?');
+            $sql = "INSERT INTO activation_orders (" . implode(', ', $fields) . ") VALUES (" . implode(', ', $placeholders) . ")";
+            $ins = $pdo->prepare($sql);
+            $ins->execute(array_values($insertData));
 
             jsonResponse([
                 'success' => true,
@@ -330,10 +374,26 @@ try {
                 jsonResponse(['success' => false, 'error' => 'Invalid TXID format. Must be a valid 64-character hexadecimal transaction hash.'], 400);
             }
 
-            $dupStmt = $pdo->prepare("SELECT id FROM activation_orders WHERE txid = ? AND status IN ('VERIFIED', 'SUBMITTED')");
-            $dupStmt->execute([$txid]);
-            if ($dupStmt->fetch()) {
-                jsonResponse(['success' => false, 'error' => 'This TXID has already been submitted or redeemed. Replay attacks are prohibited.'], 409);
+            $colStmt = $pdo->query("SHOW COLUMNS FROM activation_orders");
+            $existingCols = $colStmt ? $colStmt->fetchAll(PDO::FETCH_COLUMN) : [];
+
+            $dupConds = [];
+            $dupParams = [];
+            if (in_array('txid_hash', $existingCols)) {
+                $dupConds[] = "txid_hash = ?";
+                $dupParams[] = $txid;
+            }
+            if (in_array('txid', $existingCols)) {
+                $dupConds[] = "txid = ?";
+                $dupParams[] = $txid;
+            }
+            if (!empty($dupConds)) {
+                $dupSql = "SELECT id FROM activation_orders WHERE (" . implode(' OR ', $dupConds) . ") AND status IN ('VERIFIED', 'SUBMITTED', 'ACTIVE')";
+                $dupStmt = $pdo->prepare($dupSql);
+                $dupStmt->execute($dupParams);
+                if ($dupStmt->fetch()) {
+                    jsonResponse(['success' => false, 'error' => 'This TXID has already been submitted or redeemed. Replay attacks are prohibited.'], 409);
+                }
             }
 
             $ordStmt = $pdo->prepare("SELECT * FROM activation_orders WHERE id = ? AND user_id = ?");
@@ -345,8 +405,19 @@ try {
 
             $pdo->beginTransaction();
             try {
-                $upd = $pdo->prepare("UPDATE activation_orders SET txid = ?, status = 'VERIFIED', verified_at = NOW() WHERE id = ?");
-                $upd->execute([$txid, $orderId]);
+                $updFields = ["status = 'VERIFIED'", "verified_at = NOW()"];
+                $updParams = [];
+                if (in_array('txid_hash', $existingCols)) {
+                    $updFields[] = "txid_hash = ?";
+                    $updParams[] = $txid;
+                }
+                if (in_array('txid', $existingCols)) {
+                    $updFields[] = "txid = ?";
+                    $updParams[] = $txid;
+                }
+                $updParams[] = $orderId;
+                $upd = $pdo->prepare("UPDATE activation_orders SET " . implode(', ', $updFields) . " WHERE id = ?");
+                $upd->execute($updParams);
 
                 $fStmt = $pdo->prepare("SELECT baseline_valuation FROM funds WHERE id = ?");
                 $fStmt->execute([$order['fund_id']]);
