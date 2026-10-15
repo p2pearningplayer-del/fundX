@@ -598,7 +598,7 @@ ensureDatabaseSchema($pdo);
                                         ` : `
                                             <button onclick="openFundUnlockModal('${f.id}')" class="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center space-x-1 shadow-md shadow-blue-600/20">
                                                 <i data-lucide="key" class="w-3.5 h-3.5"></i>
-                                                <span>Activate (${f.activation_fee_percent}% Fee)</span>
+                                                <span>Activate (${f.activation_fee_usdt || (f.slug === 'gaming' ? 100 : (f.slug === 'stock' ? 150 : 200))} USDT)</span>
                                             </button>
                                         `}
                                     </div>
@@ -663,7 +663,7 @@ ensureDatabaseSchema($pdo);
 
                                     <div class="space-y-2 text-xs border-t border-gray-800 pt-3">
                                         <div class="flex justify-between"><span class="text-gray-400">Base Commission:</span> <span class="font-bold text-emerald-400">${(f.base_rate * 100).toFixed(1)}%</span></div>
-                                        <div class="flex justify-between"><span class="text-gray-400">Activation Gate Fee:</span> <span class="font-semibold text-white">${f.activation_fee_percent}% of Baseline</span></div>
+                                        <div class="flex justify-between"><span class="text-gray-400">Fixed Activation Fee:</span> <span class="font-bold text-emerald-400">${f.activation_fee_usdt || (f.slug === 'gaming' ? 100 : (f.slug === 'stock' ? 150 : 200))} USDT</span></div>
                                         <div class="flex justify-between"><span class="text-gray-400">Task Quantum Range:</span> <span class="font-semibold text-white">₹${f.min_task_amount} - ₹${f.max_task_amount}</span></div>
                                         <div class="flex justify-between"><span class="text-gray-400">Baseline Allocation:</span> <span class="font-bold text-blue-400">₹${Number(f.baseline_valuation).toLocaleString()}</span></div>
                                     </div>
@@ -676,9 +676,9 @@ ensureDatabaseSchema($pdo);
                                             <i data-lucide="arrow-right" class="w-4 h-4"></i>
                                         </button>
                                     ` : `
-                                        <button onclick="initiateFundActivation('${f.id}')" class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-lg shadow-blue-600/20 flex items-center justify-center space-x-1.5">
+                                        <button onclick="openFundUnlockModal('${f.id}')" class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-lg shadow-blue-600/20 flex items-center justify-center space-x-1.5">
                                             <i data-lucide="key" class="w-4 h-4"></i>
-                                            <span>Unlock with USDT (TRC20)</span>
+                                            <span>Unlock with ${f.activation_fee_usdt || (f.slug === 'gaming' ? 100 : (f.slug === 'stock' ? 150 : 200))} USDT</span>
                                         </button>
                                     `}
                                 </div>
@@ -717,8 +717,11 @@ ensureDatabaseSchema($pdo);
 
                     <div class="space-y-3 bg-gray-950 p-4 rounded-xl border border-gray-800 text-xs mb-6">
                         <div class="flex justify-between items-center">
-                            <span class="text-gray-400">Deposit Quantum:</span>
-                            <span class="text-lg font-bold text-emerald-400">${order.usdt_amount} USDT</span>
+                            <span class="text-gray-400">Fixed Activation Fee (Locked):</span>
+                            <span class="text-xl font-black text-emerald-400 font-mono flex items-center gap-1.5">
+                                <i data-lucide="lock" class="w-4 h-4"></i>
+                                ${order.usdt_amount} USDT
+                            </span>
                         </div>
                         <div class="flex justify-between items-center text-[11px] text-gray-500 border-t border-gray-800/60 pt-2">
                             <span>FX Peg Reference:</span>
@@ -1175,12 +1178,13 @@ ensureDatabaseSchema($pdo);
 
         // 13. ZERO-TRUST ADMIN CONSOLE VIEW
         async function renderAdminView() {
-            const [statsRes, usersRes, txidsRes, disbRes, settingsRes] = await Promise.all([
+            const [statsRes, usersRes, txidsRes, disbRes, settingsRes, fundsRes] = await Promise.all([
                 apiCall('admin/stats'),
                 apiCall('admin/users'),
                 apiCall('admin/txids'),
                 apiCall('admin/disbursements'),
-                apiCall('admin/settings')
+                apiCall('admin/settings'),
+                apiCall('admin/funds')
             ]);
             const stats = statsRes.stats || {};
             const users = usersRes.users || [];
@@ -1191,6 +1195,7 @@ ensureDatabaseSchema($pdo);
                 usdt_qr_path: '',
                 usdt_inr_peg_rate: 89.50
             };
+            const adminFunds = (fundsRes && fundsRes.funds) ? fundsRes.funds : [];
 
             return `
                 <div class="space-y-6">
@@ -1293,6 +1298,61 @@ ensureDatabaseSchema($pdo);
                                 </button>
                             </div>
                         </form>
+                    </div>
+
+                    <!-- Fund Tier Management & Fixed Activation Pricing Desk -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl space-y-5">
+                        <div class="border-b border-gray-800 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div>
+                                <h3 class="text-sm font-bold text-white uppercase flex items-center gap-2">
+                                    <i data-lucide="layers" class="w-4 h-4 text-blue-400"></i>
+                                    <span>Fund Tier Management & Fixed Activation Pricing (USDT)</span>
+                                </h3>
+                                <p class="text-xs text-gray-400 mt-0.5">View and update the fixed USDT activation fee (Gaming=100, Stock=150, Mix=200) and base commission rates.</p>
+                            </div>
+                            <span class="text-[11px] text-blue-400 font-mono bg-blue-500/10 px-2.5 py-1 rounded-lg border border-blue-500/20">
+                                3 Isolated Fund Tiers
+                            </span>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            ${adminFunds.map(f => {
+                                const defaultFee = f.slug === 'gaming' ? 100 : (f.slug === 'stock' ? 150 : 200);
+                                const feeVal = f.activation_fee_usdt || defaultFee;
+                                return `
+                                    <div class="bg-gray-950 border border-gray-800 rounded-xl p-4 space-y-3 relative">
+                                        <div class="flex items-center justify-between">
+                                            <span class="font-bold text-white text-sm flex items-center gap-1.5">
+                                                <span class="w-2.5 h-2.5 rounded-full ${f.slug === 'gaming' ? 'bg-emerald-400' : (f.slug === 'stock' ? 'bg-blue-400' : 'bg-purple-400')}"></span>
+                                                ${f.name}
+                                            </span>
+                                            <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-gray-800 text-gray-300">${f.slug}</span>
+                                        </div>
+
+                                        <div class="space-y-1">
+                                            <label class="block text-[11px] font-semibold text-gray-400">Fixed Activation Fee (USDT) *</label>
+                                            <div class="relative">
+                                                <input id="admin-fee-${f.id}" type="number" step="0.01" min="1" value="${feeVal}" class="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-emerald-400 font-mono font-bold text-sm focus:outline-none focus:border-blue-500 pr-16">
+                                                <span class="absolute right-3 top-2 text-xs font-mono text-gray-400">USDT</span>
+                                            </div>
+                                        </div>
+
+                                        <div class="space-y-1">
+                                            <label class="block text-[11px] font-semibold text-gray-400">Base Commission Rate</label>
+                                            <div class="relative">
+                                                <input id="admin-rate-${f.id}" type="number" step="0.001" min="0" max="1" value="${f.base_rate}" class="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-white font-mono text-xs focus:outline-none focus:border-blue-500 pr-12">
+                                                <span class="absolute right-3 top-2 text-xs font-mono text-gray-400">${(f.base_rate * 100).toFixed(1)}%</span>
+                                            </div>
+                                        </div>
+
+                                        <button onclick="saveAdminFundPricing('${f.id}')" id="btn-save-fund-${f.id}" class="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center space-x-1.5 transition">
+                                            <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                            <span>Update ${f.name} Pricing</span>
+                                        </button>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
                     </div>
 
                     <!-- Pending Disbursements Approval Desk -->
@@ -1638,9 +1698,12 @@ ensureDatabaseSchema($pdo);
                             <img src="${qrImageSrc}" alt="TRC20 USDT QR Code" class="w-44 h-44 object-contain mx-auto" onerror="this.onerror=null; this.src='${dynamicQrUrl}';">
                         </div>
                         <div class="text-center">
-                            <span class="text-[11px] text-gray-400 block">Required Deposit Quantum</span>
-                            <div class="text-2xl font-black text-emerald-400 font-mono mt-0.5">${order.usdt_amount} USDT</div>
-                            <span class="text-[11px] text-gray-500 font-mono">Equivalent: ₹${Number(order.inr_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                            <span class="text-[11px] text-gray-400 block uppercase tracking-wider font-semibold">Tier Activation Fee (Locked)</span>
+                            <div class="text-3xl font-black text-emerald-400 font-mono mt-0.5 tracking-tight">${order.usdt_amount} USDT</div>
+                            <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold mt-1.5">
+                                <i data-lucide="lock" class="w-3.5 h-3.5"></i>
+                                <span>Fixed Payment Required: ${order.usdt_amount} USDT (~₹${Number(order.inr_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })})</span>
+                            </div>
                         </div>
                     </div>
 
@@ -1780,6 +1843,48 @@ ensureDatabaseSchema($pdo);
                 btn.disabled = false;
                 btn.innerHTML = `<i data-lucide="save" class="w-4 h-4"></i><span>Save Payment Settings</span>`;
                 lucide.createIcons();
+            }
+        }
+
+        async function saveAdminFundPricing(fundId) {
+            const btn = document.getElementById(`btn-save-fund-${fundId}`);
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = `<div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Updating...</span>`;
+            }
+
+            const feeInput = document.getElementById(`admin-fee-${fundId}`);
+            const rateInput = document.getElementById(`admin-rate-${fundId}`);
+
+            const activation_fee_usdt = feeInput ? parseFloat(feeInput.value) : null;
+            const base_rate = rateInput ? parseFloat(rateInput.value) : null;
+
+            if (activation_fee_usdt === null || isNaN(activation_fee_usdt) || activation_fee_usdt <= 0) {
+                showToast('Please enter a valid positive USDT activation fee.', 'error');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = `<i data-lucide="check" class="w-3.5 h-3.5"></i><span>Update Pricing</span>`;
+                    lucide.createIcons();
+                }
+                return;
+            }
+
+            const res = await apiCall('admin/update-fund', 'POST', {
+                fund_id: fundId,
+                activation_fee_usdt,
+                base_rate
+            });
+
+            if (res.success) {
+                showToast(res.message || 'Fund tier pricing updated successfully!', 'success');
+                navigateTo('admin');
+            } else {
+                showToast(res.error || 'Failed to update pricing', 'error');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = `<i data-lucide="check" class="w-3.5 h-3.5"></i><span>Update Pricing</span>`;
+                    lucide.createIcons();
+                }
             }
         }
 

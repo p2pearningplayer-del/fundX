@@ -113,7 +113,7 @@ function getDBConnection(): PDO {
     return $pdo;
 }
 
-// 2. Safe Schema Verification
+// 2. Safe Schema Verification & Automatic Migration
 function ensureDatabaseSchema(PDO $pdo): void {
     try {
         $stmt = $pdo->query("SHOW TABLES LIKE 'users'");
@@ -122,6 +122,18 @@ function ensureDatabaseSchema(PDO $pdo): void {
             if (file_exists($sqlFile)) {
                 $sql = file_get_contents($sqlFile);
                 $pdo->exec($sql);
+            }
+        } else {
+            // Check if funds table exists and ensure activation_fee_usdt column is present
+            $fundsCheck = $pdo->query("SHOW TABLES LIKE 'funds'");
+            if ($fundsCheck && $fundsCheck->rowCount() > 0) {
+                $colStmt = $pdo->query("SHOW COLUMNS FROM `funds` LIKE 'activation_fee_usdt'");
+                if ($colStmt && $colStmt->rowCount() === 0) {
+                    $pdo->exec("ALTER TABLE `funds` ADD COLUMN `activation_fee_usdt` DECIMAL(12,2) NOT NULL DEFAULT 100.00 AFTER `activation_fee_percent`");
+                    $pdo->exec("UPDATE `funds` SET `activation_fee_usdt` = 100.00 WHERE `slug` = 'gaming'");
+                    $pdo->exec("UPDATE `funds` SET `activation_fee_usdt` = 150.00 WHERE `slug` = 'stock'");
+                    $pdo->exec("UPDATE `funds` SET `activation_fee_usdt` = 200.00 WHERE `slug` = 'mix'");
+                }
             }
         }
     } catch (Throwable $e) {

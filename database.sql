@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS `funds` (
     `slug` VARCHAR(32) NOT NULL,
     `name` VARCHAR(64) NOT NULL,
     `description` TEXT DEFAULT NULL,
-    `activation_fee_percent` DECIMAL(5, 2) NOT NULL,
+    `activation_fee_percent` DECIMAL(5, 2) NOT NULL DEFAULT 10.00,
+    `activation_fee_usdt` DECIMAL(12, 2) NOT NULL DEFAULT 100.00,
     `base_rate` DECIMAL(5, 4) NOT NULL,
     `min_task_amount` DECIMAL(14, 2) NOT NULL DEFAULT 1000.00,
     `max_task_amount` DECIMAL(14, 2) NOT NULL DEFAULT 30000.00,
@@ -314,13 +315,13 @@ CREATE TABLE IF NOT EXISTS `system_config` (
 -- DEFAULT SEED DATA
 -- ==============================================================================
 
--- 1. Initial 3 Funds
-INSERT INTO `funds` (`id`, `slug`, `name`, `description`, `activation_fee_percent`, `base_rate`, `min_task_amount`, `max_task_amount`, `baseline_valuation`, `is_active`)
+-- 1. Initial 3 Funds (Explicit Fixed USDT Activation Fees)
+INSERT INTO `funds` (`id`, `slug`, `name`, `description`, `activation_fee_percent`, `activation_fee_usdt`, `base_rate`, `min_task_amount`, `max_task_amount`, `baseline_valuation`, `is_active`)
 VALUES
-('fnd-gaming-001', 'gaming', 'Gaming Fund', 'High-velocity transaction-matching fund with gaming network clearing tasks.', 9.00, 0.0900, 1000.00, 30000.00, 10000.00, 1),
-('fnd-stock-002', 'stock', 'Stock Fund', 'Equities and derivatives transaction routing with institutional clearing.', 18.00, 0.1800, 1000.00, 30000.00, 10000.00, 1),
-('fnd-mix-003', 'mix', 'Mix Fund', 'Blended multi-asset algorithmic liquidity provision and arbitrage clearing.', 24.00, 0.2400, 1000.00, 30000.00, 10000.00, 1)
-ON DUPLICATE KEY UPDATE `activation_fee_percent` = VALUES(`activation_fee_percent`), `base_rate` = VALUES(`base_rate`);
+('fnd-gaming-001', 'gaming', 'Gaming Fund', 'High-velocity transaction-matching fund with gaming network clearing tasks.', 9.00, 100.00, 0.0900, 1000.00, 30000.00, 10000.00, 1),
+('fnd-stock-002', 'stock', 'Stock Fund', 'Equities and derivatives transaction routing with institutional clearing.', 18.00, 150.00, 0.1800, 1000.00, 30000.00, 10000.00, 1),
+('fnd-mix-003', 'mix', 'Mix Fund', 'Blended multi-asset algorithmic liquidity provision and arbitrage clearing.', 24.00, 200.00, 0.2400, 1000.00, 30000.00, 10000.00, 1)
+ON DUPLICATE KEY UPDATE `activation_fee_usdt` = VALUES(`activation_fee_usdt`), `activation_fee_percent` = VALUES(`activation_fee_percent`), `base_rate` = VALUES(`base_rate`);
 
 -- 2. Default Initial Superadmin
 -- Password: FundX#AdminSecure2026! (Bcrypt cost factor 12)

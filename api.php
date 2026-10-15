@@ -206,6 +206,15 @@ try {
             $stmt = $pdo->query("SELECT * FROM funds ORDER BY base_rate ASC");
             $funds = $stmt->fetchAll();
 
+            $tierDefaults = [
+                'gaming' => 100.00,
+                'fnd-gaming-001' => 100.00,
+                'stock' => 150.00,
+                'fnd-stock-002' => 150.00,
+                'mix' => 200.00,
+                'fnd-mix-003' => 200.00
+            ];
+
             $userFundsMap = [];
             if ($userId) {
                 $ufStmt = $pdo->prepare("SELECT * FROM user_funds WHERE user_id = ?");
@@ -218,12 +227,14 @@ try {
             $results = [];
             foreach ($funds as $f) {
                 $uf = $userFundsMap[$f['id']] ?? null;
+                $feeUsdt = !empty($f['activation_fee_usdt']) ? floatval($f['activation_fee_usdt']) : ($tierDefaults[$f['slug']] ?? ($tierDefaults[$f['id']] ?? 100.00));
                 $results[] = [
                     'id' => $f['id'],
                     'slug' => $f['slug'],
                     'name' => $f['name'],
                     'description' => $f['description'],
                     'activation_fee_percent' => floatval($f['activation_fee_percent']),
+                    'activation_fee_usdt' => $feeUsdt,
                     'base_rate' => floatval($f['base_rate']),
                     'min_task_amount' => floatval($f['min_task_amount']),
                     'max_task_amount' => floatval($f['max_task_amount']),
@@ -263,8 +274,18 @@ try {
             $tokenContract = getSystemConfig($pdo, 'trc20_contract', 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t');
             $pegRate = floatval(getSystemConfig($pdo, 'usdt_inr_peg_rate', '89.50'));
 
-            $feeInr = floatval($fund['baseline_valuation']) * (floatval($fund['activation_fee_percent']) / 100.0);
-            $usdtAmount = round($feeInr / $pegRate, 2);
+            // Fixed USDT Activation Pricing: Gaming=100 USDT, Stock=150 USDT, Mix=200 USDT
+            $tierDefaults = [
+                'gaming' => 100.00,
+                'fnd-gaming-001' => 100.00,
+                'stock' => 150.00,
+                'fnd-stock-002' => 150.00,
+                'mix' => 200.00,
+                'fnd-mix-003' => 200.00
+            ];
+            $fallbackUsdt = $tierDefaults[$fund['slug']] ?? ($tierDefaults[$fund['id']] ?? 100.00);
+            $usdtAmount = floatval(!empty($fund['activation_fee_usdt']) ? $fund['activation_fee_usdt'] : $fallbackUsdt);
+            $feeInr = round($usdtAmount * $pegRate, 2);
 
             $orderId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000, mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
 
@@ -282,6 +303,7 @@ try {
                     'id' => $orderId,
                     'fund_id' => $fundId,
                     'fund_name' => $fund['name'],
+                    'fund_slug' => $fund['slug'],
                     'usdt_amount' => $usdtAmount,
                     'inr_amount' => $feeInr,
                     'wallet_address' => $hotWallet,
@@ -794,16 +816,56 @@ try {
 
         case 'admin/funds':
         case 'admin/update-fund':
+        case 'admin/funds/update-fees':
             $admin = requireAdmin($pdo);
             if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-                $fundId = $body['fund_id'] ?? '';
-                $rate = floatval($body['base_rate'] ?? 0);
-                $upd = $pdo->prepare("UPDATE funds SET base_rate = ?, updated_at = NOW() WHERE id = ?");
-                $upd->execute([$rate, $fundId]);
-                jsonResponse(['success' => true, 'message' => 'Fund parameters updated']);
+                // Bulk fee update support
+                if (isset($body['fees']) && is_array($body['fees'])) {
+                    $upd = $pdo->prepare("UPDATE funds SET activation_fee_usdt = ?, updated_at = NOW() WHERE id = ? OR slug = ?");
+                    foreach ($body['fees'] as $fId => $feeVal) {
+                        $upd->execute([floatval($feeVal), $fId, $fId]);
+                    }
+                    jsonResponse(['success' => true, 'message' => 'All fund activation fees updated successfully']);
+                }
+
+                $fundId = $body['fund_id'] ?? $_POST['fund_id'] ?? '';
+                if (!$fundId) {
+                    jsonResponse(['success' => false, 'error' => 'Fund ID is required'], 400);
+                }
+
+                $updates = [];
+                $params = [];
+                if (isset($body['base_rate']) || isset($_POST['base_rate'])) {
+                    $updates[] = "base_rate = ?";
+                    $params[] = floatval($body['base_rate'] ?? $_POST['base_rate']);
+                }
+                if (isset($body['activation_fee_usdt']) || isset($_POST['activation_fee_usdt'])) {
+                    $feeVal = floatval($body['activation_fee_usdt'] ?? $_POST['activation_fee_usdt']);
+                    if ($feeVal > 0) {
+                        $updates[] = "activation_fee_usdt = ?";
+                        $params[] = $feeVal;
+                    }
+                }
+                if (empty($updates)) {
+                    jsonResponse(['success' => false, 'error' => 'No parameters provided to update'], 400);
+                }
+
+                $updates[] = "updated_at = NOW()";
+                $params[] = $fundId;
+                $upd = $pdo->prepare("UPDATE funds SET " . implode(', ', $updates) . " WHERE id = ?");
+                $upd->execute($params);
+                jsonResponse(['success' => true, 'message' => 'Fund tier configuration updated successfully']);
             }
+
             $stmt = $pdo->query("SELECT * FROM funds ORDER BY base_rate ASC");
-            jsonResponse(['success' => true, 'funds' => $stmt->fetchAll()]);
+            $funds = $stmt->fetchAll();
+            $tierDefaults = ['gaming' => 100.00, 'stock' => 150.00, 'mix' => 200.00];
+            foreach ($funds as &$f) {
+                if (empty($f['activation_fee_usdt'])) {
+                    $f['activation_fee_usdt'] = $tierDefaults[$f['slug']] ?? 100.00;
+                }
+            }
+            jsonResponse(['success' => true, 'funds' => $funds]);
             break;
 
         case 'admin/txids':
