@@ -241,7 +241,7 @@ try {
         case 'funds/activate':
         case 'activate':
             $user = requireAuth($pdo);
-            $fundId = $body['fund_id'] ?? '';
+            $fundId = $body['fund_id'] ?? $_POST['fund_id'] ?? $_GET['fund_id'] ?? '';
 
             $fStmt = $pdo->prepare("SELECT * FROM funds WHERE id = ?");
             $fStmt->execute([$fundId]);
@@ -257,13 +257,16 @@ try {
                 jsonResponse(['success' => false, 'error' => 'This fund tier is already ACTIVE'], 400);
             }
 
+            // Fetch active wallet address and settings configured by admin
+            $hotWallet = getSystemConfig($pdo, 'usdt_address') ?: getSystemConfig($pdo, 'trc20_hot_wallet', 'TEaZq1K2vhWUi5i8AWqC4tNE57VvHi6xJX');
+            $customQrPath = getSystemConfig($pdo, 'usdt_qr_path', '');
+            $tokenContract = getSystemConfig($pdo, 'trc20_contract', 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t');
+            $pegRate = floatval(getSystemConfig($pdo, 'usdt_inr_peg_rate', '89.50'));
+
             $feeInr = floatval($fund['baseline_valuation']) * (floatval($fund['activation_fee_percent']) / 100.0);
-            $pegRate = 89.50; // 1 USDT = 89.50 INR
             $usdtAmount = round($feeInr / $pegRate, 2);
 
             $orderId = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000, mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
-            $hotWallet = 'TXN9A5B8x7pKL2qRt1WvY3zEmP9sDcFeGh';
-            $tokenContract = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
 
             $ins = $pdo->prepare("
                 INSERT INTO activation_orders (id, user_id, fund_id, usdt_amount, inr_amount, exchange_rate, wallet_address, token_contract, status, expires_at, created_at)
@@ -282,6 +285,7 @@ try {
                     'usdt_amount' => $usdtAmount,
                     'inr_amount' => $feeInr,
                     'wallet_address' => $hotWallet,
+                    'custom_qr_url' => $customQrPath ?: null,
                     'token_contract' => $tokenContract,
                     'qr_payload' => $qrPayload,
                     'expires_in_seconds' => 1800,
@@ -881,6 +885,102 @@ try {
             $admin = requireAdmin($pdo);
             $stmt = $pdo->query("SELECT * FROM security_logs ORDER BY created_at DESC LIMIT 100");
             jsonResponse(['success' => true, 'audit_logs' => $stmt->fetchAll()]);
+            break;
+
+        case 'admin/settings':
+            $admin = requireAdmin($pdo);
+            $usdtAddress = getSystemConfig($pdo, 'usdt_address', 'TEaZq1K2vhWUi5i8AWqC4tNE57VvHi6xJX');
+            $usdtQrPath = getSystemConfig($pdo, 'usdt_qr_path', '');
+            $pegRate = getSystemConfig($pdo, 'usdt_inr_peg_rate', '89.50');
+            $tokenContract = getSystemConfig($pdo, 'trc20_contract', 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t');
+            $expiryMinutes = getSystemConfig($pdo, 'order_expiry_minutes', '30');
+
+            jsonResponse([
+                'success' => true,
+                'settings' => [
+                    'usdt_address' => $usdtAddress,
+                    'usdt_qr_path' => $usdtQrPath,
+                    'usdt_inr_peg_rate' => floatval($pegRate),
+                    'trc20_contract' => $tokenContract,
+                    'order_expiry_minutes' => intval($expiryMinutes)
+                ]
+            ]);
+            break;
+
+        case 'admin/settings/payment':
+            $admin = requireAdmin($pdo);
+            $address = trim($_POST['usdt_address'] ?? $body['usdt_address'] ?? '');
+            $pegRate = trim($_POST['usdt_inr_peg_rate'] ?? $body['usdt_inr_peg_rate'] ?? '');
+            $qrData = $body['qr_image_base64'] ?? $_POST['qr_image_base64'] ?? '';
+
+            if (!empty($address)) {
+                if (strlen($address) < 30 || strlen($address) > 42 || substr($address, 0, 1) !== 'T') {
+                    jsonResponse(['success' => false, 'error' => 'Invalid TRC20 wallet address. Must start with "T" (e.g. TEaZq1K2vhWUi5i8AWqC4tNE57VvHi6xJX).'], 400);
+                }
+                setSystemConfig($pdo, 'usdt_address', $address, $admin['id']);
+                setSystemConfig($pdo, 'trc20_hot_wallet', $address, $admin['id']);
+            }
+
+            if (!empty($pegRate) && is_numeric($pegRate)) {
+                setSystemConfig($pdo, 'usdt_inr_peg_rate', (string)floatval($pegRate), $admin['id']);
+            }
+
+            $qrRelativePath = null;
+
+            // Handle Multipart file upload
+            if (isset($_FILES['qr_image']) && $_FILES['qr_image']['error'] === UPLOAD_ERR_OK) {
+                $file = $_FILES['qr_image'];
+                $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                $allowed = ['png', 'jpg', 'jpeg', 'svg', 'webp'];
+                if (!in_array($ext, $allowed)) {
+                    jsonResponse(['success' => false, 'error' => 'Invalid image format. Allowed formats: PNG, JPG, JPEG, SVG, WEBP.'], 400);
+                }
+                if ($file['size'] > 5 * 1024 * 1024) {
+                    jsonResponse(['success' => false, 'error' => 'Image exceeds maximum 5MB size limit.'], 400);
+                }
+
+                $uploadDir = __DIR__ . '/assets/images/qr/';
+                if (!is_dir($uploadDir)) {
+                    mkdir($uploadDir, 0755, true);
+                }
+                $filename = 'usdt_qr_' . time() . '_' . mt_rand(1000, 9999) . '.' . $ext;
+                $destination = $uploadDir . $filename;
+                if (move_uploaded_file($file['tmp_name'], $destination)) {
+                    $qrRelativePath = '/assets/images/qr/' . $filename;
+                    setSystemConfig($pdo, 'usdt_qr_path', $qrRelativePath, $admin['id']);
+                } else {
+                    jsonResponse(['success' => false, 'error' => 'Failed to save uploaded QR code to server.'], 500);
+                }
+            } 
+            // Handle Base64 Data URI upload
+            else if (!empty($qrData) && preg_match('#^data:image/(\w+);base64,#i', $qrData, $m)) {
+                $ext = strtolower($m[1]);
+                if ($ext === 'jpeg') $ext = 'jpg';
+                $decoded = base64_decode(substr($qrData, strpos($qrData, ',') + 1));
+                if ($decoded) {
+                    $uploadDir = __DIR__ . '/assets/images/qr/';
+                    if (!is_dir($uploadDir)) {
+                        mkdir($uploadDir, 0755, true);
+                    }
+                    $filename = 'usdt_qr_' . time() . '_' . mt_rand(1000, 9999) . '.' . $ext;
+                    file_put_contents($uploadDir . $filename, $decoded);
+                    $qrRelativePath = '/assets/images/qr/' . $filename;
+                    setSystemConfig($pdo, 'usdt_qr_path', $qrRelativePath, $admin['id']);
+                }
+            }
+
+            logSecurityEvent($pdo, $admin['id'], 'ADMIN_PAYMENT_SETTINGS_UPDATED', [
+                'usdt_address' => $address,
+                'usdt_qr_path' => $qrRelativePath
+            ]);
+
+            jsonResponse([
+                'success' => true,
+                'message' => 'Payment gateway settings updated successfully.',
+                'usdt_address' => getSystemConfig($pdo, 'usdt_address', 'TEaZq1K2vhWUi5i8AWqC4tNE57VvHi6xJX'),
+                'usdt_qr_path' => getSystemConfig($pdo, 'usdt_qr_path', ''),
+                'usdt_inr_peg_rate' => floatval(getSystemConfig($pdo, 'usdt_inr_peg_rate', '89.50'))
+            ]);
             break;
 
         default:

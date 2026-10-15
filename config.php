@@ -320,3 +320,34 @@ function recordLedgerEntry(
 
     return $id;
 }
+
+// 9. System Config Service
+function getSystemConfig(PDO $pdo, string $key, $default = null) {
+    try {
+        $stmt = $pdo->prepare("SELECT config_value FROM system_config WHERE config_key = ?");
+        $stmt->execute([$key]);
+        $row = $stmt->fetch();
+        if ($row && $row['config_value'] !== null && $row['config_value'] !== '') {
+            $val = trim($row['config_value']);
+            if ((substr($val, 0, 1) === '"' && substr($val, -1) === '"') || (substr($val, 0, 1) === "'" && substr($val, -1) === "'")) {
+                $val = substr($val, 1, -1);
+            }
+            return $val;
+        }
+    } catch (Throwable $e) {}
+    return $default;
+}
+
+function setSystemConfig(PDO $pdo, string $key, string $value, ?string $updatedBy = null): bool {
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO system_config (config_key, config_value, updated_by, updated_at)
+            VALUES (?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), updated_by = VALUES(updated_by), updated_at = NOW()
+        ");
+        return $stmt->execute([$key, $value, $updatedBy]);
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+

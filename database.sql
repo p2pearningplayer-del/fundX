@@ -341,8 +341,10 @@ ON DUPLICATE KEY UPDATE `password_hash` = VALUES(`password_hash`), `role` = 'SUP
 -- 3. Initial Configuration
 INSERT INTO `system_config` (`config_key`, `config_value`, `description`)
 VALUES 
-('trc20_contract', '"TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"', 'USDT TRC20 Official Contract'),
-('trc20_hot_wallet', '"TXN9A5B8x7pKL2qRt1WvY3zEmP9sDcFeGh"', 'Platform Central Hot Wallet Address'),
+('usdt_address', 'TEaZq1K2vhWUi5i8AWqC4tNE57VvHi6xJX', 'USDT TRC20 Destination Wallet Address'),
+('usdt_qr_path', '', 'Path or URL to Custom USDT QR Code Image'),
+('trc20_contract', 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', 'USDT TRC20 Official Contract'),
+('trc20_hot_wallet', 'TEaZq1K2vhWUi5i8AWqC4tNE57VvHi6xJX', 'Platform Central Hot Wallet Address'),
 ('usdt_inr_peg_rate', '89.50', 'Reference FX Peg: 1 USDT = 89.50 INR'),
 ('order_expiry_minutes', '30', 'Activation Timer Window in minutes')
 ON DUPLICATE KEY UPDATE `config_value` = VALUES(`config_value`);

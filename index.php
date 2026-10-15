@@ -164,6 +164,18 @@ ensureDatabaseSchema($pdo);
         </div>
     </div>
 
+    <!-- Global Fund Unlock Payment Modal -->
+    <div id="fund-unlock-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+        <div class="relative w-full max-w-lg bg-gray-900 border border-gray-800 rounded-3xl p-6 sm:p-8 shadow-2xl text-left my-8">
+            <button onclick="closeFundUnlockModal()" class="absolute top-5 right-5 p-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+            <div id="fund-unlock-modal-content">
+                <!-- Dynamically injected payment details -->
+            </div>
+        </div>
+    </div>
+
     <!-- Application JavaScript Engine -->
     <script>
         // Global Application State
@@ -584,7 +596,8 @@ ensureDatabaseSchema($pdo);
                                                 <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
                                             </button>
                                         ` : `
-                                            <button onclick="navigateTo('funds')" class="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center space-x-1">
+                                            <button onclick="openFundUnlockModal('${f.id}')" class="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center space-x-1 shadow-md shadow-blue-600/20">
+                                                <i data-lucide="key" class="w-3.5 h-3.5"></i>
                                                 <span>Activate (${f.activation_fee_percent}% Fee)</span>
                                             </button>
                                         `}
@@ -678,24 +691,28 @@ ensureDatabaseSchema($pdo);
 
         // 5. TRC20 ACTIVATION GATEWAY VIEW (Dynamic QR Code, 30-min Timer)
         function renderActivationGatewayView(order) {
+            const qrPayload = order.qr_payload || `tron:${order.wallet_address}?value=${order.usdt_amount}`;
+            const dynamicQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrPayload)}`;
+            const qrImageSrc = order.custom_qr_url ? order.custom_qr_url : dynamicQrUrl;
+
             return `
-                <div class="max-w-xl mx-auto bg-gray-900 border border-gray-800 rounded-2xl p-6 sm:p-8 shadow-2xl relative">
+                <div class="max-w-xl mx-auto bg-gray-900 border border-gray-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative">
                     <div class="flex items-center justify-between border-b border-gray-800 pb-4 mb-6">
                         <div>
                             <span class="text-xs font-semibold text-blue-400">TRC20 Activation Gateway</span>
                             <h2 class="text-xl font-bold text-white mt-0.5">${order.fund_name}</h2>
                         </div>
                         <div class="text-right">
-                            <span class="text-[10px] text-gray-400 block">Timer Window</span>
-                            <span id="countdown-timer" class="text-sm font-mono font-bold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">30:00</span>
+                            <span class="text-[10px] text-gray-400 block font-mono">Timer Window</span>
+                            <span id="countdown-timer" class="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">30:00</span>
                         </div>
                     </div>
 
                     <div class="flex flex-col items-center justify-center mb-6">
-                        <div class="p-3 bg-white rounded-2xl shadow-xl mb-4">
-                            <div id="qrcode-canvas" class="w-48 h-48"></div>
+                        <div class="p-3 bg-white rounded-2xl shadow-xl mb-4 border border-gray-700">
+                            <img src="${qrImageSrc}" alt="USDT TRC20 QR Code" class="w-48 h-48 object-contain" onerror="this.onerror=null; this.src='${dynamicQrUrl}';">
                         </div>
-                        <span class="text-xs text-gray-400">Scan QR via TronLink, Binance, or OKX</span>
+                        <span class="text-xs text-gray-400">Scan QR via TronLink, Binance, TrustWallet, or OKX</span>
                     </div>
 
                     <div class="space-y-3 bg-gray-950 p-4 rounded-xl border border-gray-800 text-xs mb-6">
@@ -705,14 +722,15 @@ ensureDatabaseSchema($pdo);
                         </div>
                         <div class="flex justify-between items-center text-[11px] text-gray-500 border-t border-gray-800/60 pt-2">
                             <span>FX Peg Reference:</span>
-                            <span>1 USDT = ₹89.50 (₹${order.inr_amount})</span>
+                            <span>1 USDT = ₹89.50 (₹${Number(order.inr_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })})</span>
                         </div>
                         <div class="border-t border-gray-800/60 pt-2">
                             <span class="text-gray-400 block mb-1">Central Deposit Wallet (TRC20):</span>
-                            <div class="flex items-center justify-between bg-gray-900 p-2 rounded-lg font-mono text-[11px] text-blue-400 break-all select-all">
+                            <div class="flex items-center justify-between bg-gray-900 p-2.5 rounded-lg font-mono text-[11px] text-blue-400 break-all select-all">
                                 <span>${order.wallet_address}</span>
-                                <button onclick="navigator.clipboard.writeText('${order.wallet_address}'); showToast('Wallet address copied!', 'success');" class="ml-2 text-gray-400 hover:text-white">
-                                    <i data-lucide="copy" class="w-4 h-4"></i>
+                                <button onclick="navigator.clipboard.writeText('${order.wallet_address}'); showToast('Wallet address copied!', 'success');" class="ml-2 px-2 py-1 rounded bg-blue-600/30 text-blue-300 hover:text-white flex items-center gap-1">
+                                    <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                    <span>Copy</span>
                                 </button>
                             </div>
                         </div>
@@ -1157,16 +1175,22 @@ ensureDatabaseSchema($pdo);
 
         // 13. ZERO-TRUST ADMIN CONSOLE VIEW
         async function renderAdminView() {
-            const [statsRes, usersRes, txidsRes, disbRes] = await Promise.all([
+            const [statsRes, usersRes, txidsRes, disbRes, settingsRes] = await Promise.all([
                 apiCall('admin/stats'),
                 apiCall('admin/users'),
                 apiCall('admin/txids'),
-                apiCall('admin/disbursements')
+                apiCall('admin/disbursements'),
+                apiCall('admin/settings')
             ]);
             const stats = statsRes.stats || {};
             const users = usersRes.users || [];
             const orders = txidsRes.orders || [];
             const disbursements = disbRes.disbursements || [];
+            const settings = (settingsRes && settingsRes.settings) ? settingsRes.settings : {
+                usdt_address: 'TEaZq1K2vhWUi5i8AWqC4tNE57VvHi6xJX',
+                usdt_qr_path: '',
+                usdt_inr_peg_rate: 89.50
+            };
 
             return `
                 <div class="space-y-6">
@@ -1199,6 +1223,76 @@ ensureDatabaseSchema($pdo);
                             <span class="text-xs text-gray-400">Total Volume Settled</span>
                             <h3 class="text-2xl font-bold text-blue-400 mt-1">₹${Number(stats.total_commission_volume || 0).toLocaleString()}</h3>
                         </div>
+                    </div>
+
+                    <!-- USDT TRC20 Payment & Deposit Settings Desk -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl space-y-5">
+                        <div class="border-b border-gray-800 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div>
+                                <h3 class="text-sm font-bold text-white uppercase flex items-center gap-2">
+                                    <i data-lucide="wallet-cards" class="w-4 h-4 text-emerald-400"></i>
+                                    <span>Payment Settings & Central USDT (TRC20) Gateway</span>
+                                </h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Configure the deposit wallet address and QR code presented to investors during fund unlocks.</p>
+                            </div>
+                            <span class="text-[11px] text-emerald-400 font-mono bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20 flex items-center gap-1.5 self-start sm:self-auto">
+                                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                Live Gateway Active
+                            </span>
+                        </div>
+
+                        <form id="admin-payment-form" onsubmit="handleAdminPaymentSettings(event)" class="space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="space-y-1.5 md:col-span-2">
+                                    <label class="block text-xs font-semibold text-gray-300">
+                                        Central USDT (TRC20) Destination Wallet Address *
+                                    </label>
+                                    <div class="relative">
+                                        <input id="admin-usdt-address" type="text" required value="${settings.usdt_address || 'TEaZq1K2vhWUi5i8AWqC4tNE57VvHi6xJX'}" placeholder="e.g. TEaZq1K2vhWUi5i8AWqC4tNE57VvHi6xJX" class="w-full px-4 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-white font-mono text-xs focus:outline-none focus:border-emerald-500 pr-24">
+                                        <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('admin-usdt-address').value); showToast('Wallet address copied!', 'success');" class="absolute right-2 top-2 px-2.5 py-1 text-[11px] font-semibold bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg transition flex items-center gap-1">
+                                            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                            <span>Copy</span>
+                                        </button>
+                                    </div>
+                                    <p class="text-[11px] text-gray-500">TRC20 addresses start with 'T' (Base58 format). Default fallback: <code>TEaZq1K2vhWUi5i8AWqC4tNE57VvHi6xJX</code></p>
+                                </div>
+
+                                <div class="space-y-1.5">
+                                    <label class="block text-xs font-semibold text-gray-300">
+                                        USDT / INR Peg Exchange Rate (₹) *
+                                    </label>
+                                    <input id="admin-peg-rate" type="number" step="0.01" min="1" required value="${settings.usdt_inr_peg_rate || 89.50}" class="w-full px-4 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-white font-mono text-xs focus:outline-none focus:border-emerald-500">
+                                    <p class="text-[11px] text-gray-500">Calculates USDT conversion dynamically for activation fees.</p>
+                                </div>
+
+                                <div class="space-y-1.5">
+                                    <label class="block text-xs font-semibold text-gray-300">
+                                        Upload USDT QR Code Image (.png, .jpg, .svg)
+                                    </label>
+                                    <input id="admin-qr-file" type="file" accept=".png,.jpg,.jpeg,.svg,.webp" onchange="previewAdminQR(this)" class="w-full px-3 py-2 rounded-xl bg-gray-950 border border-gray-700 text-gray-400 text-xs file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500 cursor-pointer">
+                                    <p class="text-[11px] text-gray-500">Saved securely to <code>assets/images/qr/</code> on the server.</p>
+                                </div>
+                            </div>
+
+                            <!-- Live QR Code Preview Card -->
+                            <div class="p-4 bg-gray-950 rounded-xl border border-gray-800 flex flex-col sm:flex-row items-center gap-4">
+                                <div class="w-28 h-28 bg-white rounded-xl p-2 flex items-center justify-center shrink-0 border border-gray-700 overflow-hidden shadow-inner">
+                                    <img id="admin-qr-preview" src="${settings.usdt_qr_path || 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(settings.usdt_address || 'TEaZq1K2vhWUi5i8AWqC4tNE57VvHi6xJX')}" alt="QR Preview" class="w-full h-full object-contain">
+                                </div>
+                                <div class="space-y-1 text-xs">
+                                    <span class="font-bold text-white block">Active QR Code Preview</span>
+                                    <p class="text-gray-400 text-[11px]">This image will be rendered instantly to all investors when unlocking any fund tier. If no custom image is uploaded, a dynamic QR code based on the wallet address is automatically generated.</p>
+                                    ${settings.usdt_qr_path ? `<span class="inline-block text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Custom Image Active: ${settings.usdt_qr_path}</span>` : `<span class="inline-block text-[10px] text-amber-400 font-mono bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">Using Dynamic System QR</span>`}
+                                </div>
+                            </div>
+
+                            <div class="flex justify-end pt-2">
+                                <button type="submit" id="admin-save-payment-btn" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-lg shadow-emerald-600/20 flex items-center space-x-2">
+                                    <i data-lucide="save" class="w-4 h-4"></i>
+                                    <span>Save Payment Settings</span>
+                                </button>
+                            </div>
+                        </form>
                     </div>
 
                     <!-- Pending Disbursements Approval Desk -->
@@ -1465,11 +1559,227 @@ ensureDatabaseSchema($pdo);
         }
 
         async function initiateFundActivation(fundId) {
+            await openFundUnlockModal(fundId);
+        }
+
+        function closeFundUnlockModal() {
+            const modal = document.getElementById('fund-unlock-modal');
+            if (modal) modal.classList.add('hidden');
+            if (AppState.timerInterval) {
+                clearInterval(AppState.timerInterval);
+                AppState.timerInterval = null;
+            }
+        }
+
+        async function openFundUnlockModal(fundId) {
+            const modal = document.getElementById('fund-unlock-modal');
+            const content = document.getElementById('fund-unlock-modal-content');
+            if (!modal || !content) return;
+
+            modal.classList.remove('hidden');
+            content.innerHTML = `
+                <div class="py-12 flex flex-col items-center justify-center text-center space-y-4">
+                    <div class="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Generating TRC20 Gateway Session...</h3>
+                        <p class="text-xs text-gray-400 mt-1">Allocating dedicated deposit channel and order nonce.</p>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+
             const res = await apiCall('funds/activate', 'POST', { fund_id: fundId });
+            if (!res.success) {
+                content.innerHTML = `
+                    <div class="text-center py-6 space-y-4">
+                        <div class="w-12 h-12 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-center justify-center mx-auto text-red-400">
+                            <i data-lucide="alert-octagon" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-base font-bold text-white">Activation Session Failed</h3>
+                            <p class="text-xs text-red-400 mt-1">${res.error || 'Could not initiate fund activation.'}</p>
+                        </div>
+                        <button onclick="closeFundUnlockModal()" class="px-5 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-white text-xs font-semibold">
+                            Dismiss
+                        </button>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            const order = res.order;
+            AppState.activeOrder = order;
+
+            const qrPayload = order.qr_payload || `tron:${order.wallet_address}?value=${order.usdt_amount}`;
+            const dynamicQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrPayload)}`;
+            const qrImageSrc = order.custom_qr_url ? order.custom_qr_url : dynamicQrUrl;
+
+            content.innerHTML = `
+                <div class="space-y-5">
+                    <div class="flex items-start justify-between border-b border-gray-800 pb-3 pr-8">
+                        <div>
+                            <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                TRC20 Gateway Active &bull; Tier Unlock
+                            </span>
+                            <h2 class="text-xl font-black text-white mt-0.5">${order.fund_name}</h2>
+                            <p class="text-[11px] text-gray-400">Send exact USDT to unlock genuine tasks & commissions</p>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-[10px] text-gray-400 block font-mono">Order Window</span>
+                            <span id="modal-countdown-timer" class="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">30:00</span>
+                        </div>
+                    </div>
+
+                    <!-- QR Code and Payment Amount Display -->
+                    <div class="flex flex-col items-center justify-center bg-gray-950 p-4 rounded-2xl border border-gray-800">
+                        <div class="p-2.5 bg-white rounded-2xl shadow-xl mb-3 border border-gray-700">
+                            <img src="${qrImageSrc}" alt="TRC20 USDT QR Code" class="w-44 h-44 object-contain mx-auto" onerror="this.onerror=null; this.src='${dynamicQrUrl}';">
+                        </div>
+                        <div class="text-center">
+                            <span class="text-[11px] text-gray-400 block">Required Deposit Quantum</span>
+                            <div class="text-2xl font-black text-emerald-400 font-mono mt-0.5">${order.usdt_amount} USDT</div>
+                            <span class="text-[11px] text-gray-500 font-mono">Equivalent: ₹${Number(order.inr_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                    </div>
+
+                    <!-- Destination Wallet -->
+                    <div class="space-y-1.5">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-gray-300 font-semibold">Central USDT (TRC20) Wallet:</span>
+                            <span class="text-[10px] text-emerald-400 font-mono">Network: TRON / TRC20</span>
+                        </div>
+                        <div class="flex items-center justify-between bg-gray-950 border border-gray-800 p-2.5 rounded-xl font-mono text-xs text-blue-400 select-all break-all">
+                            <span id="modal-wallet-addr" class="truncate mr-2">${order.wallet_address}</span>
+                            <button type="button" onclick="navigator.clipboard.writeText('${order.wallet_address}'); showToast('Wallet address copied to clipboard!', 'success');" class="shrink-0 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-semibold flex items-center gap-1 transition">
+                                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                <span>Copy</span>
+                            </button>
+                        </div>
+                        <p class="text-[10px] text-gray-500">Send USDT strictly on TRC20 (Tron network). Contract: TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t</p>
+                    </div>
+
+                    <!-- TXID Submission Form -->
+                    <form onsubmit="handleModalTXIDSubmit(event, '${order.id}')" class="space-y-3 pt-1 border-t border-gray-800">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-300 mb-1">
+                                Enter 64-Character Blockchain TXID (Hash) *
+                            </label>
+                            <input id="modal-txid-input" type="text" required maxlength="64" placeholder="e.g. 7f9a1c8d5e4b2a3f0192837465abcdef7182930415..." class="w-full px-3.5 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-white font-mono text-xs focus:outline-none focus:border-emerald-500">
+                            <span class="text-[10px] text-gray-500 block mt-1">Transferred funds verify automatically via node hashing. Anti-replay enforced.</span>
+                        </div>
+                        <div class="flex items-center space-x-2 pt-1">
+                            <button type="button" onclick="closeFundUnlockModal()" class="w-1/3 py-2.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold text-xs transition">
+                                Cancel
+                            </button>
+                            <button type="submit" id="modal-txid-btn" class="w-2/3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 flex items-center justify-center space-x-1.5 transition">
+                                <i data-lucide="shield-check" class="w-4 h-4"></i>
+                                <span>Verify & Unlock</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            lucide.createIcons();
+            startModalCountdownTimer(order.expires_in_seconds || 1800);
+        }
+
+        function startModalCountdownTimer(seconds) {
+            if (AppState.timerInterval) clearInterval(AppState.timerInterval);
+            let remaining = seconds;
+            const el = document.getElementById('modal-countdown-timer');
+
+            AppState.timerInterval = setInterval(() => {
+                remaining--;
+                if (remaining <= 0) {
+                    clearInterval(AppState.timerInterval);
+                    if (el) el.innerText = 'EXPIRED';
+                    showToast('Activation order expired. Please initiate a new order.', 'error');
+                } else if (el) {
+                    const m = Math.floor(remaining / 60).toString().padStart(2, '0');
+                    const s = (remaining % 60).toString().padStart(2, '0');
+                    el.innerText = `${m}:${s}`;
+                }
+            }, 1000);
+        }
+
+        async function handleModalTXIDSubmit(e, orderId) {
+            e.preventDefault();
+            const btn = document.getElementById('modal-txid-btn');
+            btn.disabled = true;
+            btn.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Verifying TXID...</span>`;
+
+            const txid = document.getElementById('modal-txid-input').value.trim();
+            const res = await apiCall('funds/verify-txid', 'POST', { order_id: orderId, txid });
             if (res.success) {
-                navigateTo('activation-gateway', res.order);
+                showToast('Fund activated successfully! Baseline balance credited.', 'success');
+                closeFundUnlockModal();
+                if (AppState.currentRoute === 'funds') {
+                    navigateTo('funds');
+                } else {
+                    navigateTo('dashboard');
+                }
             } else {
-                showToast(res.error || 'Activation order failed', 'error');
+                showToast(res.error || 'TXID verification failed', 'error');
+                btn.disabled = false;
+                btn.innerHTML = `<i data-lucide="shield-check" class="w-4 h-4"></i><span>Verify & Unlock</span>`;
+                lucide.createIcons();
+            }
+        }
+
+        function previewAdminQR(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const preview = document.getElementById('admin-qr-preview');
+                    if (preview) preview.src = e.target.result;
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        async function handleAdminPaymentSettings(e) {
+            e.preventDefault();
+            const btn = document.getElementById('admin-save-payment-btn');
+            btn.disabled = true;
+            btn.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Saving Settings...</span>`;
+
+            const usdt_address = document.getElementById('admin-usdt-address').value.trim();
+            const usdt_inr_peg_rate = document.getElementById('admin-peg-rate').value.trim();
+            const fileInput = document.getElementById('admin-qr-file');
+
+            const token = localStorage.getItem('fundx_token');
+            const formData = new FormData();
+            formData.append('usdt_address', usdt_address);
+            formData.append('usdt_inr_peg_rate', usdt_inr_peg_rate);
+
+            if (fileInput && fileInput.files[0]) {
+                formData.append('qr_image', fileInput.files[0]);
+            }
+
+            try {
+                const res = await fetch('/api.php?endpoint=admin/settings/payment', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: formData
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Payment settings and QR code updated successfully!', 'success');
+                    navigateTo('admin');
+                } else {
+                    showToast(data.error || 'Failed to update payment settings', 'error');
+                }
+            } catch (err) {
+                console.error(err);
+                showToast('Network error saving payment settings.', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i data-lucide="save" class="w-4 h-4"></i><span>Save Payment Settings</span>`;
+                lucide.createIcons();
             }
         }
 
