@@ -364,14 +364,23 @@ try {
         case 'verify-txid':
             $user = requireAuth($pdo);
             $orderId = trim($body['order_id'] ?? '');
-            $txid = trim($body['txid'] ?? '');
+            $rawTxid = trim($body['txid'] ?? '');
 
-            if (!$orderId || !$txid) {
+            if (!$orderId || !$rawTxid) {
                 jsonResponse(['success' => false, 'error' => 'Order ID and USDT TRC20 TXID are required'], 400);
             }
 
-            if (!preg_match('/^[a-fA-F0-9]{64}$/', $txid)) {
-                jsonResponse(['success' => false, 'error' => 'Invalid TXID format. Must be a valid 64-character hexadecimal transaction hash.'], 400);
+            // Clean & sanitize the TXID
+            $txid = $rawTxid;
+            if (preg_match('/([a-fA-F0-9]{64})/', $txid, $m)) {
+                $txid = $m[1];
+            } else {
+                $txid = preg_replace('/^0x/i', '', $txid);
+                $txid = preg_replace('/[\s\-]/', '', $txid);
+            }
+
+            if (strlen($txid) < 8 || strlen($txid) > 128 || !preg_match('/^[a-zA-Z0-9_]+$/', $txid)) {
+                jsonResponse(['success' => false, 'error' => 'Invalid TXID format. Please enter a valid transaction hash or transfer reference.'], 400);
             }
 
             $colStmt = $pdo->query("SHOW COLUMNS FROM activation_orders");

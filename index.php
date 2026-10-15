@@ -742,9 +742,9 @@ ensureDatabaseSchema($pdo);
                     <!-- TXID Submission Form -->
                     <form onsubmit="submitTXID(event, '${order.id}')" class="space-y-4">
                         <div>
-                            <label class="block text-xs font-semibold text-gray-300 mb-1">Enter Blockchain TXID (64-Char Hash) *</label>
-                            <input id="txid-input" type="text" required maxlength="64" placeholder="e.g. 7f9a1c8d5e... (64 hex characters)" class="w-full px-4 py-2.5 rounded-xl bg-gray-800 border border-gray-700 text-white font-mono text-xs focus:outline-none focus:border-blue-500">
-                            <p class="text-[11px] text-gray-500 mt-1">Strict anti-replay verification enabled. Unique hash required.</p>
+                            <label class="block text-xs font-semibold text-gray-300 mb-1">Enter Blockchain TXID (Hash) or Transfer Reference *</label>
+                            <input id="txid-input" type="text" required maxlength="128" placeholder="Paste TXID hash (e.g. 7f9a1c... or 0x7f9a1c...)" class="w-full px-4 py-2.5 rounded-xl bg-gray-800 border border-gray-700 text-white font-mono text-xs focus:outline-none focus:border-blue-500">
+                            <p class="text-[11px] text-gray-500 mt-1">Accepts 64-character TRC20 TXID, 0x-prefixed hash, or transfer reference.</p>
                         </div>
                         <button type="submit" id="txid-btn" class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-lg shadow-emerald-600/20 flex items-center justify-center space-x-1.5">
                             <i data-lucide="shield-check" class="w-4 h-4"></i>
@@ -1727,10 +1727,10 @@ ensureDatabaseSchema($pdo);
                     <form onsubmit="handleModalTXIDSubmit(event, '${order.id}')" class="space-y-3 pt-1 border-t border-gray-800">
                         <div>
                             <label class="block text-xs font-semibold text-gray-300 mb-1">
-                                Enter 64-Character Blockchain TXID (Hash) *
+                                Enter Blockchain TXID (Hash) or Transfer Reference *
                             </label>
-                            <input id="modal-txid-input" type="text" required maxlength="64" placeholder="e.g. 7f9a1c8d5e4b2a3f0192837465abcdef7182930415..." class="w-full px-3.5 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-white font-mono text-xs focus:outline-none focus:border-emerald-500">
-                            <span class="text-[10px] text-gray-500 block mt-1">Transferred funds verify automatically via node hashing. Anti-replay enforced.</span>
+                            <input id="modal-txid-input" type="text" required maxlength="128" placeholder="Paste TXID hash (e.g. 7f9a1c... or 0x7f9a1c...)" class="w-full px-3.5 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-white font-mono text-xs focus:outline-none focus:border-emerald-500">
+                            <span class="text-[10px] text-gray-500 block mt-1">Accepts 64-character TRC20 TXID, 0x-prefixed hash, or transfer reference.</span>
                         </div>
                         <div class="flex items-center space-x-2 pt-1">
                             <button type="button" onclick="closeFundUnlockModal()" class="w-1/3 py-2.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold text-xs transition">
@@ -1773,7 +1773,14 @@ ensureDatabaseSchema($pdo);
             btn.disabled = true;
             btn.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Verifying TXID...</span>`;
 
-            const txid = document.getElementById('modal-txid-input').value.trim();
+            let txid = document.getElementById('modal-txid-input').value.trim();
+            const urlMatch = txid.match(/([a-fA-F0-9]{64})/);
+            if (urlMatch) {
+                txid = urlMatch[1];
+            } else {
+                txid = txid.replace(/^0x/i, '').replace(/[\s\-]/g, '');
+            }
+
             const res = await apiCall('funds/verify-txid', 'POST', { order_id: orderId, txid });
             if (res.success) {
                 showToast('Fund activated successfully! Baseline balance credited.', 'success');
@@ -1930,7 +1937,14 @@ ensureDatabaseSchema($pdo);
             btn.disabled = true;
             btn.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>`;
 
-            const txid = document.getElementById('txid-input').value.trim();
+            let txid = document.getElementById('txid-input').value.trim();
+            const urlMatch = txid.match(/([a-fA-F0-9]{64})/);
+            if (urlMatch) {
+                txid = urlMatch[1];
+            } else {
+                txid = txid.replace(/^0x/i, '').replace(/[\s\-]/g, '');
+            }
+
             const res = await apiCall('funds/verify-txid', 'POST', { order_id: orderId, txid });
             if (res.success) {
                 showToast('Fund activated! Baseline balance credited.', 'success');
