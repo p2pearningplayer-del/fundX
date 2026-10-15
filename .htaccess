@@ -1,11 +1,9 @@
 # ==============================================================================
-# FundX Panel — Hostinger Production Apache / LiteSpeed Configuration
+# FundX Panel — Hostinger Production Web Server Configuration
 # Target Domain: https://fundxx.in/
-# Resolves 403 Forbidden by routing all traffic to Node.js / server.js
 # ==============================================================================
 
 Options -Indexes
-DirectoryIndex disabled
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
@@ -15,24 +13,17 @@ DirectoryIndex disabled
     RewriteCond %{HTTPS} off
     RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
-    # 2. Prevent direct access to sensitive config files
-    RewriteRule ^(\.env|\.git|database\.sql|schema\.sql) - [F,L]
-
-    # 3. Reverse Proxy all requests to the running FundX Node.js server (Port 3000)
-    RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteRule ^(.*)$ http://127.0.0.1:3000/$1 [P,L]
-
-    # 4. Proxy root requests
-    RewriteRule ^$ http://127.0.0.1:3000/ [P,L]
+    # 2. Block direct access to sensitive configuration files
+    RewriteRule ^(\.env|\.git|database\.sql|schema\.sql|server-error\.log|data\/.*) - [F,L]
 </IfModule>
 
-<IfModule mod_proxy.c>
-    ProxyPreserveHost On
-    ProxyPassReverse / http://127.0.0.1:3000/
+# Hostinger CloudLinux / LiteSpeed Passenger Engine Integration
+<IfModule mod_passenger.c>
+    PassengerAppType node
+    PassengerStartupFile server.js
 </IfModule>
 
-# Security & Header Configurations
+# Security & Optimization Headers
 <IfModule mod_headers.c>
     Header set X-Content-Type-Options "nosniff"
     Header set X-Frame-Options "SAMEORIGIN"

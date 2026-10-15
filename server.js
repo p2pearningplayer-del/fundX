@@ -1,19 +1,39 @@
 // ==============================================================================
 // FundX Panel — Hostinger Production Server Entrypoint
-// Compatible with Hostinger hPanel Node.js Application Manager & Passenger
+// Fully Compatible with Hostinger CloudLinux Phusion Passenger & Standalone Node
 // ==============================================================================
 
 const { createServer } = require('http');
 const { parse } = require('url');
+const fs = require('fs');
+const path = require('path');
 const next = require('next');
 
-const dev = process.env.NODE_ENV === 'development';
-const rawPort = process.env.PORT || '3000';
-const port = isNaN(Number(rawPort)) ? rawPort : parseInt(rawPort, 10);
-const hostname = process.env.HOSTNAME || '0.0.0.0';
+function logError(title, err) {
+  const logMessage = `[${new Date().toISOString()}] ${title}: ${err && err.stack ? err.stack : err}\n`;
+  console.error(logMessage);
+  try {
+    fs.appendFileSync(path.join(process.cwd(), 'server-error.log'), logMessage);
+  } catch (e) {
+    // ignore
+  }
+}
 
-const app = next({ dev, hostname, port: typeof port === 'number' ? port : 3000 });
+process.on('uncaughtException', (err) => {
+  logError('UNCAUGHT EXCEPTION', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logError('UNHANDLED REJECTION', reason);
+});
+
+const dev = process.env.NODE_ENV === 'development';
+// Next.js application instance
+const app = next({ dev });
 const handle = app.getRequestHandler();
+
+// Determine port or socket: Passenger sets PORT to 'passenger' or socket path
+const port = process.env.PORT || 3000;
 
 app.prepare()
   .then(() => {
@@ -22,24 +42,24 @@ app.prepare()
         const parsedUrl = parse(req.url, true);
         await handle(req, res, parsedUrl);
       } catch (err) {
-        console.error('Error occurred handling request:', req.url, err);
+        logError(`Error handling ${req.url}`, err);
         res.statusCode = 500;
         res.end('Internal Server Error');
       }
     });
 
     server.once('error', (err) => {
-      console.error('FundX Server failed to start:', err);
+      logError('Server listen error', err);
       process.exit(1);
     });
 
     server.listen(port, () => {
-      console.log(`> [FundX Production] Server listening on ${typeof port === 'number' ? `http://${hostname}:${port}` : port}`);
+      console.log(`> [FundX Production] Running on port/socket: ${port}`);
       console.log(`> Domain: https://fundxx.in/`);
-      console.log(`> Mode: ${dev ? 'development' : 'production'}`);
+      console.log(`> Node Environment: ${process.env.NODE_ENV || 'production'}`);
     });
   })
   .catch((err) => {
-    console.error('Error during app.prepare():', err);
+    logError('Error during app.prepare()', err);
     process.exit(1);
   });
