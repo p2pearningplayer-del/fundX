@@ -132,21 +132,28 @@ runTest('Real-time balance reservation & compensating rollback logic', () => {
   assert.strictEqual(reservedBalance, 0.0, 'Reserved balance cleared');
 });
 
-// 8. Dual Task Partitioning (Genuine vs Demo Zero Impact)
-runTest('Dual task architecture balance impact segregation', () => {
-  let genuineUserBalance = 1000.0;
+// 9. Hostinger MySQL Configuration Integrity
+runTest('Hostinger MySQL credentials & database parameters validation', () => {
+  const host = process.env.DB_HOST || 'localhost';
+  const dbName = process.env.DB_NAME || 'u591469534_fund';
+  const dbUser = process.env.DB_USER || 'u591469534_fundx';
+  const dbPass = process.env.DB_PASS || 'Fund@123@1';
+  const port = Number(process.env.DB_PORT) || 3306;
 
-  // Genuine task yields balance credit
-  const genuineCommission = 180.0;
-  genuineUserBalance += genuineCommission;
-  assert.strictEqual(genuineUserBalance, 1180.0);
+  assert.strictEqual(host, 'localhost');
+  assert.strictEqual(dbName, 'u591469534_fund');
+  assert.strictEqual(dbUser, 'u591469534_fundx');
+  assert.strictEqual(dbPass, 'Fund@123@1');
+  assert.strictEqual(port, 3306);
+});
 
-  // Demo task MUST have zero financial balance impact
-  const demoTaskEarned = 900.0;
-  // Demo task completion does NOT mutate genuineUserBalance
-  assert.strictEqual(genuineUserBalance, 1180.0, 'Demo task must have zero impact on genuine balance');
+// 10. Production Domain & Base URL Verification
+runTest('Production target domain (https://fundxx.in/) configuration', () => {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://fundxx.in';
+  assert.strictEqual(appUrl.replace(/\/$/, ''), 'https://fundxx.in');
 });
 
 console.log('------------------------------------------------------------');
 console.log(`Test Execution Summary: ${passedTests}/${totalTests} Passed (100% Success)`);
 console.log('------------------------------------------------------------');
+

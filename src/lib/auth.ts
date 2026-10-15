@@ -9,6 +9,9 @@ import { UserRole } from './types';
 const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'fundx_jwt_access_secret_super_secure_key_32chars_min_2026_x1';
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'fundx_jwt_refresh_secret_super_secure_key_32chars_min_2026_x2';
 
+const JWT_ISSUER = process.env.JWT_ISSUER || 'https://fundxx.in';
+const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'https://fundxx.in';
+
 export interface TokenPayload {
   userId: string;
   username: string;
@@ -26,10 +29,14 @@ export function generateTokenPair(payload: TokenPayload): {
 } {
   const accessToken = jwt.sign(payload, ACCESS_SECRET, {
     expiresIn: '15m',
+    issuer: JWT_ISSUER,
+    audience: JWT_AUDIENCE,
   });
 
   const refreshToken = jwt.sign({ userId: payload.userId }, REFRESH_SECRET, {
     expiresIn: '7d',
+    issuer: JWT_ISSUER,
+    audience: JWT_AUDIENCE,
   });
 
   return {
@@ -44,10 +51,18 @@ export function generateTokenPair(payload: TokenPayload): {
  */
 export function verifyAccessToken(token: string): TokenPayload | null {
   try {
-    const decoded = jwt.verify(token, ACCESS_SECRET) as TokenPayload;
+    const decoded = jwt.verify(token, ACCESS_SECRET, {
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+    }) as TokenPayload;
     return decoded;
   } catch {
-    return null;
+    // Fallback verification without issuer requirement for backward compatibility
+    try {
+      return jwt.verify(token, ACCESS_SECRET) as TokenPayload;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -56,10 +71,17 @@ export function verifyAccessToken(token: string): TokenPayload | null {
  */
 export function verifyRefreshToken(token: string): { userId: string } | null {
   try {
-    const decoded = jwt.verify(token, REFRESH_SECRET) as { userId: string };
+    const decoded = jwt.verify(token, REFRESH_SECRET, {
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+    }) as { userId: string };
     return decoded;
   } catch {
-    return null;
+    try {
+      return jwt.verify(token, REFRESH_SECRET) as { userId: string };
+    } catch {
+      return null;
+    }
   }
 }
 

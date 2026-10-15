@@ -6,7 +6,8 @@
 [![Ledger](https://img.shields.io/badge/Ledger-ACID%20Double--Entry-purple.svg)]()
 
 > **Antigravity Product Specification PRD v1.0 (Stable Baseline)**  
-> Target Deployment: Enterprise Monorepo  
+> Production Target Domain: **`https://fundxx.in/`**  
+> Database Engine: MySQL / MariaDB (Hostinger Server — `u591469534_fund` on port `3306`)  
 > Primary Currencies: INR (Fiat) & USDT (TRC20 — Contract: `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`)
 
 ---

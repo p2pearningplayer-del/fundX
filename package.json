@@ -14,6 +14,7 @@
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.468.0",
+    "mysql2": "^3.24.6",
     "next": "^14.2.24",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",

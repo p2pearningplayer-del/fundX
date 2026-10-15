@@ -154,6 +154,43 @@ const INITIAL_CONFIG: SystemConfig[] = [
   },
 ];
 
+// Hostinger MySQL Connection Pool Configuration
+let mysqlPoolInstance: any = null;
+
+export function getMySQLPool(): any {
+  if (mysqlPoolInstance) return mysqlPoolInstance;
+
+  try {
+    // Dynamic import pattern or standard require to avoid blocking when driver is absent
+    const mysql = require('mysql2/promise');
+    const host = process.env.DB_HOST || 'localhost';
+    const port = Number(process.env.DB_PORT) || 3306;
+    const user = process.env.DB_USER || 'u591469534_fundx';
+    const password = process.env.DB_PASS || 'Fund@123@1';
+    const database = process.env.DB_NAME || 'u591469534_fund';
+
+    mysqlPoolInstance = mysql.createPool({
+      host,
+      port,
+      user,
+      password,
+      database,
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 0,
+      // No SSL for local/cPanel Hostinger socket connections to prevent handshake rejection
+      ssl: undefined,
+    });
+
+    return mysqlPoolInstance;
+  } catch (err) {
+    console.warn('MySQL pool driver initialization deferred:', err);
+    return null;
+  }
+}
+
 class DatabaseService {
   private state: DatabaseState;
   private isInitialized = false;
